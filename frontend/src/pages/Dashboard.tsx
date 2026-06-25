@@ -5,6 +5,7 @@ import { useApp } from '../context/AppContext';
 import { formatCurrency } from '../utils/currency';
 import { AreaChart, Area, Tooltip, ResponsiveContainer } from 'recharts';
 import { useLocation } from 'react-router-dom';
+import { IndiaPriceMap } from '../components/IndiaPriceMap';
 import {
   Search,
   Phone,
@@ -42,7 +43,7 @@ const CUSTOMS_DUTY_RATE = 0.15;
 const GST_RATE = 0.03;
 
 export const Dashboard: React.FC = () => {
-  const { hasPermission } = useApp();
+  const { hasPermission, theme } = useApp();
 
   // Search state
   const [searchQuery, setSearchQuery] = useState('');
@@ -147,6 +148,7 @@ export const Dashboard: React.FC = () => {
   // Enhancement state
   const [marketRates, setMarketRates] = useState<any[]>([]);
   const [marketWatchAsset, setMarketWatchAsset] = useState<string>('GOLD');
+  const [showMapView, setShowMapView] = useState(false);
   const [editingAssetRate, setEditingAssetRate] = useState<string | null>(null);
   const [editingRateValue, setEditingRateValue] = useState('');
   const [activeTab, setActiveTab] = useState<'loans' | 'payments' | 'transactions' | 'documents' | 'notes' | 'timeline' | 'risk'>('loans');
@@ -1060,8 +1062,23 @@ export const Dashboard: React.FC = () => {
                     <Activity size={14} className="text-brand-gold animate-pulse" /> Market Watch
                   </h3>
                   <div className="flex items-center gap-2">
-                    <select
-                      aria-label="Market watch asset"
+                    {/* Map toggle button */}
+                    <button
+                      onClick={() => setShowMapView(v => !v)}
+                      title={showMapView ? 'Show Chart' : 'Show India Price Map'}
+                      className={`p-1.5 rounded-lg border transition-all ${
+                        showMapView
+                          ? 'bg-brand-gold text-brand-navy border-brand-gold'
+                          : 'text-gray-400 hover:text-brand-gold border-gray-200 dark:border-brand-matte-border hover:border-brand-gold'
+                      }`}
+                    >
+                      {/* Map pin dot icon */}
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                        <circle cx="12" cy="12" r="3" fill="currentColor" stroke="none"/>
+                        <circle cx="12" cy="12" r="9"/>
+                      </svg>
+                    </button>
+                    <select aria-label="-I-"
                       value={marketWatchAsset}
                       onChange={(e) => setMarketWatchAsset(e.target.value)}
                       className="px-2 py-1 bg-gray-50 dark:bg-black border border-gray-200 dark:border-brand-matte-border text-xs rounded-lg text-brand-navy dark:text-white focus:ring-1 focus:ring-brand-gold outline-none"
@@ -1089,8 +1106,15 @@ export const Dashboard: React.FC = () => {
                 </div>
 
                 {/* The Chart */}
+                {/* The Chart / Map toggle */}
                 <div className="h-48 w-full mt-4">
-                  {marketHistory.length > 0 ? (
+                  {showMapView ? (
+                    <IndiaPriceMap
+                      rate={selectedMarketRate?.rate || 0}
+                      asset={marketWatchAsset}
+                      theme={theme}
+                    />
+                  ) : marketHistory.length > 0 ? (
                     <ResponsiveContainer width="100%" height="100%">
                       <AreaChart data={marketHistory}>
                         <defs>
@@ -1103,7 +1127,7 @@ export const Dashboard: React.FC = () => {
                           labelFormatter={(label) => String(label)}
                           contentStyle={{ backgroundColor: '#1A1A1A', borderColor: '#333', fontSize: '12px', color: '#FFF' }}
                           itemStyle={{ color: '#D4AF37' }}
-                          formatter={(value: any) => [formatCurrency(value), isRetailMetal(marketWatchAsset) ? 'Retail Rate' : 'Rate']}
+                          formatter={(value: any) => [formatCurrency(value), 'Rate']}
                         />
                         <Area
                           type="monotone"
