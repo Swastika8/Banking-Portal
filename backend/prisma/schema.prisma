@@ -1,0 +1,475 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Role {
+  id          Int              @id @default(autoincrement())
+  name        String           @unique
+  description String?
+  is_deleted  Boolean          @default(false)
+  created_at  DateTime         @default(now())
+  created_by  String           @default("SYSTEM")
+  updated_at  DateTime         @updatedAt
+  updated_by  String?
+  deleted_at  DateTime?
+  deleted_by  String?
+  permissions RolePermission[]
+  users       User[]
+
+  @@map("roles")
+}
+
+model Permission {
+  id          Int              @id @default(autoincrement())
+  name        String           @unique
+  description String?
+  is_deleted  Boolean          @default(false)
+  created_at  DateTime         @default(now())
+  created_by  String           @default("SYSTEM")
+  updated_at  DateTime         @updatedAt
+  updated_by  String?
+  deleted_at  DateTime?
+  deleted_by  String?
+  roles       RolePermission[]
+
+  @@map("permissions")
+}
+
+model RolePermission {
+  roleId       Int
+  permissionId Int
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+model User {
+  id           Int        @id @default(autoincrement())
+  email        String     @unique
+  passwordHash String
+  name         String
+  refreshToken String?
+  roleId       Int
+  is_deleted   Boolean    @default(false)
+  created_at   DateTime   @default(now())
+  created_by   String     @default("SYSTEM")
+  updated_at   DateTime   @updatedAt
+  updated_by   String?
+  deleted_at   DateTime?
+  deleted_by   String?
+  auditLogs    AuditLog[]
+  role         Role       @relation(fields: [roleId], references: [id])
+
+  @@map("users")
+}
+
+model SystemSetting {
+  id          Int       @id @default(autoincrement())
+  key         String    @unique
+  value       String
+  type        String
+  description String?
+  is_deleted  Boolean   @default(false)
+  created_at  DateTime  @default(now())
+  created_by  String    @default("SYSTEM")
+  updated_at  DateTime  @updatedAt
+  updated_by  String?
+  deleted_at  DateTime?
+  deleted_by  String?
+
+  @@map("system_settings")
+}
+
+model LoanTypeMaster {
+  id          Int       @id @default(autoincrement())
+  name        String    @unique
+  description String?
+  is_deleted  Boolean   @default(false)
+  created_at  DateTime  @default(now())
+  created_by  String    @default("SYSTEM")
+  updated_at  DateTime  @updatedAt
+  updated_by  String?
+  deleted_at  DateTime?
+  deleted_by  String?
+  loans       Loan[]
+
+  @@map("loan_type_master")
+}
+
+model InterestTypeMaster {
+  id          Int       @id @default(autoincrement())
+  name        String    @unique
+  code        String    @unique
+  description String?
+  is_deleted  Boolean   @default(false)
+  created_at  DateTime  @default(now())
+  created_by  String    @default("SYSTEM")
+  updated_at  DateTime  @updatedAt
+  updated_by  String?
+  deleted_at  DateTime?
+  deleted_by  String?
+  loans       Loan[]
+
+  @@map("interest_type_master")
+}
+
+model LoanStatusMaster {
+  id          Int       @id @default(autoincrement())
+  name        String    @unique
+  code        String    @unique
+  description String?
+  is_deleted  Boolean   @default(false)
+  created_at  DateTime  @default(now())
+  created_by  String    @default("SYSTEM")
+  updated_at  DateTime  @updatedAt
+  updated_by  String?
+  deleted_at  DateTime?
+  deleted_by  String?
+  loans       Loan[]
+
+  @@map("loan_status_master")
+}
+
+model PaymentTypeMaster {
+  id          Int       @id @default(autoincrement())
+  name        String    @unique
+  code        String    @unique
+  description String?
+  is_deleted  Boolean   @default(false)
+  created_at  DateTime  @default(now())
+  created_by  String    @default("SYSTEM")
+  updated_at  DateTime  @updatedAt
+  updated_by  String?
+  deleted_at  DateTime?
+  deleted_by  String?
+  payments    Payment[]
+
+  @@map("payment_type_master")
+}
+
+model TransactionTypeMaster {
+  id          Int              @id @default(autoincrement())
+  name        String           @unique
+  code        String           @unique
+  category    String           // DEBIT, CREDIT, BOTH
+  description String?
+  is_deleted  Boolean          @default(false)
+  created_at  DateTime         @default(now())
+  created_by  String           @default("SYSTEM")
+  updated_at  DateTime         @updatedAt
+  updated_by  String?
+  deleted_at  DateTime?
+  deleted_by  String?
+  transactions LoanTransaction[]
+
+  @@map("transaction_type_master")
+}
+
+model Customer {
+  id           Int        @id @default(autoincrement())
+  name         String
+  mobile       String
+  email        String?
+  address      String?
+  dob          DateTime?
+  occupation   String?
+  profilePhoto String?
+  kycNumber    String?
+  kycInfo      String?
+  is_deleted   Boolean    @default(false)
+  created_at   DateTime   @default(now())
+  created_by   String     @default("SYSTEM")
+  updated_at   DateTime   @updatedAt
+  updated_by   String?
+  deleted_at   DateTime?
+  deleted_by   String?
+  riskLevel    String     @default("LOW")
+  riskScore    Int        @default(0)
+  documents    Document[]
+  loans        Loan[]
+  notes        Note[]
+
+  @@map("customers")
+}
+
+model Loan {
+  id                   Int                @id @default(autoincrement())
+  customerId           Int
+  loanTypeId           Int
+  amount               Float
+  interestTypeId       Int
+  interestRate         Float
+  tenureMonths         Int
+  startDate            DateTime
+  statusId             Int
+  outstandingPrincipal Float              @default(0)
+  outstandingInterest  Float              @default(0)
+  is_deleted           Boolean            @default(false)
+  created_at           DateTime           @default(now())
+  created_by           String             @default("SYSTEM")
+  updated_at           DateTime           @updatedAt
+  updated_by           String?
+  deleted_at           DateTime?
+  deleted_by           String?
+  collateral           Collateral?
+  emiSchedule          EmiSchedule[]
+  timeline             LoanTimeline[]
+  payments             Payment[]
+  transactions         LoanTransaction[]
+  customer             Customer           @relation(fields: [customerId], references: [id])
+  interestType         InterestTypeMaster @relation(fields: [interestTypeId], references: [id])
+  loanType             LoanTypeMaster     @relation(fields: [loanTypeId], references: [id])
+  status               LoanStatusMaster   @relation(fields: [statusId], references: [id])
+
+  @@map("loans")
+}
+
+model Collateral {
+  id                           Int                @id @default(autoincrement())
+  loanId                       Int                @unique
+  type                         String
+  weight                       Float?
+  purity                       Float?
+  value                        Float
+  description                  String?
+  images                       String?
+  is_deleted                   Boolean            @default(false)
+  created_at                   DateTime           @default(now())
+  created_by                   String             @default("SYSTEM")
+  updated_at                   DateTime           @updatedAt
+  updated_by                   String?
+  deleted_at                   DateTime?
+  deleted_by                   String?
+  appraisedValueAtLoanCreation Float              @default(0)
+  marketRateAtLoanCreation     Float              @default(0)
+  purityRatioAtLoanCreation    Float              @default(0)
+  purityUnit                   String             @default("PERCENTAGE")
+  loan                         Loan               @relation(fields: [loanId], references: [id], onDelete: Cascade)
+  collateralImages             CollateralImage[]
+
+  @@map("collaterals")
+}
+
+model CollateralImage {
+  id           Int        @id @default(autoincrement())
+  collateralId Int
+  fileName     String
+  filePath     String
+  fileSize     Int?
+  fileType     String?
+  uploadedAt   DateTime   @default(now())
+  uploadedBy   String     @default("SYSTEM")
+  isDeleted    Boolean    @default(false)
+  deletedAt    DateTime?
+  deletedBy    String?
+  collateral   Collateral @relation(fields: [collateralId], references: [id], onDelete: Cascade)
+
+  @@map("collateral_images")
+}
+
+model EmiSchedule {
+  id                Int       @id @default(autoincrement())
+  loanId            Int
+  installmentNumber Int
+  dueDate           DateTime
+  principalAmount   Float
+  interestAmount    Float
+  totalAmount       Float
+  paidAmount        Float     @default(0)
+  status            String    @default("UNPAID")
+  is_deleted        Boolean   @default(false)
+  created_at        DateTime  @default(now())
+  created_by        String    @default("SYSTEM")
+  updated_at        DateTime  @updatedAt
+  updated_by        String?
+  deleted_at        DateTime?
+  deleted_by        String?
+  loan              Loan      @relation(fields: [loanId], references: [id], onDelete: Cascade)
+
+  @@map("emi_schedules")
+}
+
+model Payment {
+  id               Int               @id @default(autoincrement())
+  loanId           Int
+  paymentTypeId    Int
+  amount           Float
+  principalPortion Float
+  interestPortion  Float
+  penaltyPortion   Float             @default(0)
+  remainingBalance Float
+  referenceNumber  String?
+  notes            String?
+  receiptPath      String?
+  paymentDate      DateTime          @default(now())
+  is_deleted       Boolean           @default(false)
+  created_at       DateTime          @default(now())
+  created_by       String            @default("SYSTEM")
+  updated_at       DateTime          @updatedAt
+  updated_by       String?
+  deleted_at       DateTime?
+  deleted_by       String?
+  loan             Loan              @relation(fields: [loanId], references: [id], onDelete: Cascade)
+  paymentType      PaymentTypeMaster @relation(fields: [paymentTypeId], references: [id])
+
+  @@map("payments")
+}
+
+model LoanTransaction {
+  id                  Int       @id @default(autoincrement())
+  loanId              Int
+  transactionTypeId   Int
+  transactionDate     DateTime  @default(now())
+  amount              Float
+  principalImpact     Float     @default(0)
+  interestImpact      Float     @default(0)
+  penaltyImpact       Float     @default(0)
+  feeImpact           Float     @default(0)
+  runningPrincipal    Float
+  runningInterest     Float
+  runningTotal        Float
+  referenceId         Int?
+  referenceType       String?
+  description         String?
+  createdBy           String    @default("SYSTEM")
+  created_at          DateTime  @default(now())
+  updated_at          DateTime  @updatedAt
+  is_deleted          Boolean   @default(false)
+  deleted_at          DateTime?
+  deleted_by          String?
+  
+  loan                Loan                 @relation(fields: [loanId], references: [id], onDelete: Cascade)
+  transactionType     TransactionTypeMaster @relation(fields: [transactionTypeId], references: [id])
+
+  @@index([loanId, transactionDate])
+  @@index([transactionTypeId])
+  @@index([transactionDate])
+  @@map("loan_transactions")
+}
+
+model LoanTimeline {
+  id          Int      @id @default(autoincrement())
+  loanId      Int
+  action      String
+  description String
+  createdAt   DateTime @default(now())
+  createdBy   String   @default("SYSTEM")
+  loan        Loan     @relation(fields: [loanId], references: [id], onDelete: Cascade)
+
+  @@map("loan_timelines")
+}
+
+model Document {
+  id           Int      @id @default(autoincrement())
+  customerId   Int
+  name         String
+  documentType String
+  filePath     String
+  fileSize     Int?
+  fileType     String?
+  uploadedAt   DateTime @default(now())
+  uploadedBy   String   @default("SYSTEM")
+  isDeleted    Boolean  @default(false)
+  customer     Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@map("documents")
+}
+
+model Note {
+  id         Int       @id @default(autoincrement())
+  customerId Int
+  title      String
+  content    String
+  is_deleted Boolean   @default(false)
+  created_at DateTime  @default(now())
+  created_by String    @default("SYSTEM")
+  updated_at DateTime  @updatedAt
+  updated_by String?
+  deleted_at DateTime?
+  deleted_by String?
+  customer   Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@map("notes")
+}
+
+model Notification {
+  id               Int      @id @default(autoincrement())
+  userId           Int?
+  title            String
+  message          String
+  status           String   @default("UNREAD")
+  notificationType String?
+  createdAt        DateTime @default(now())
+
+  @@map("notifications")
+}
+
+model AuditLog {
+  id        Int      @id @default(autoincrement())
+  userId    Int?
+  action    String
+  module    String
+  oldValue  String?
+  newValue  String?
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+  user      User?    @relation(fields: [userId], references: [id])
+
+  @@map("audit_logs")
+}
+
+model MarketRate {
+  id           Int       @id @default(autoincrement())
+  asset        String    @unique
+  rate         Float     @default(0)
+  source       String    @default("MANUAL")
+  apiEndpoint  String?
+  dailyChange  Float     @default(0)
+  weeklyChange Float     @default(0)
+  is_deleted   Boolean   @default(false)
+  created_at   DateTime  @default(now())
+  created_by   String    @default("SYSTEM")
+  updated_at   DateTime  @updatedAt
+  updated_by   String?
+  deleted_at   DateTime?
+  deleted_by   String?
+
+  @@map("market_rates")
+}
+
+model MarketRateHistory {
+  id         Int      @id @default(autoincrement())
+  asset      String
+  rate       Float
+  recordedAt DateTime @default(now())
+
+  @@map("market_rate_history")
+}
+
+model FormulaMaster {
+  id          Int       @id @default(autoincrement())
+  name        String    @unique
+  description String?
+  expression  String
+  category    String    @default("GENERAL")
+  variables   String?   // JSON: [{name, description, unit}]
+  isActive    Boolean   @default(false)
+  version     Int       @default(1)
+  is_deleted  Boolean   @default(false)
+  created_at  DateTime  @default(now())
+  created_by  String    @default("SYSTEM")
+  updated_at  DateTime  @updatedAt
+  updated_by  String?
+  deleted_at  DateTime?
+  deleted_by  String?
+
+  @@map("formula_master")
+}
