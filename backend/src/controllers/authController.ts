@@ -3,6 +3,8 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { PrismaClient } from '@prisma/client';
 import { AuditService } from '../services/auditService';
+import { sendOTPEmail, generateOTP } from '../lib/mailer';
+import { otpStore } from '../lib/otpStore';
 
 const prisma = new PrismaClient();
 
@@ -194,7 +196,6 @@ export class AuthController {
 
       const tokens = generateTokens(user);
 
-      // Rotate refresh token
       await prisma.user.update({
         where: { id: user.id },
         data: { refreshToken: tokens.refreshToken },
@@ -243,7 +244,6 @@ export class AuthController {
 
   public static async forgotPassword(req: Request, res: Response) {
     try {
-      // 1. Check if forgot password setting is enabled
       const forgotSetting = await prisma.systemSetting.findUnique({
         where: { key: 'enable_forgot_password' },
       });
@@ -253,49 +253,30 @@ export class AuthController {
       }
 
       const { email } = req.body;
-      if (!email) {
-        return res.status(400).json({ message: 'Email is required.' });
+      if (!email) return res.status(400).json({ message: 'Email is required.' });
+
+      const user = await prisma.user.findUnique({ where: { email } });
+
+      // Always return success to prevent user enumeration
+      if (!user || user.is_deleted) {
+        return res.json({ message: 'If that email exists, an OTP has been sent.' });
       }
 
-      const user = await prisma.user.findUnique({
-        where: { email },
-      });
+      const otp = generateOTP();
+      otpStore.set(email, otp);
 
-      if (!user) {
-        // Return success even if email is missing to prevent user enumeration security issues
-        return res.json({ message: 'If the email exists, a password reset instruction has been sent.' });
-      }
+      await sendOTPEmail(email, otp);
 
-      // Generate a mock reset token
-      const resetToken = jwt.sign({ id: user.id, purpose: 'RESET' }, JWT_SECRET, { expiresIn: '1h' });
-
-      // Log the reset trigger
       await AuditService.logAction({
         userId: user.id,
         action: 'UPDATE',
         module: 'AUTH',
-        newValue: { action: 'Forgot Password Request Generated' },
+        newValue: { action: 'Forgot Password OTP Sent' },
         ipAddress: req.ip,
         userAgent: req.headers['user-agent'],
       });
 
-      // Write mock response or send email (Nodemailer config checked inside controller / router)
-      const smtpSetting = await prisma.systemSetting.findUnique({
-        where: { key: 'enable_smtp' },
-      });
-
-      const isSmtpEnabled = smtpSetting?.value === 'true';
-
-      if (isSmtpEnabled) {
-        // Mock email log - In production Nodemailer would be loaded with credentials
-        console.log(`[SMTP] Sending password reset link to ${email}: http://localhost:5173/reset-password?token=${resetToken}`);
-      }
-
-      return res.json({
-        message: 'Password reset instruction generated.',
-        resetToken: isSmtpEnabled ? undefined : resetToken, // Expose token to frontend only if SMTP is disabled so user can test easily!
-        note: isSmtpEnabled ? 'Check server logs for the SMTP output.' : 'SMTP is disabled; reset token returned directly for demo purposes.',
-      });
+      return res.json({ message: 'If that email exists, an OTP has been sent.' });
     } catch (error) {
       console.error('Forgot Password Error:', error);
       return res.status(500).json({ message: 'Internal server error.' });
@@ -309,13 +290,13 @@ export class AuthController {
         return res.status(400).json({ message: 'Token and new password are required.' });
       }
 
-      const decoded = jwt.verify(token, JWT_SECRET) as { id: number; purpose: string };
+      const decoded = jwt.verify(token, JWT_SECRET) as { email?: string; id?: number; purpose: string };
       if (decoded.purpose !== 'RESET') {
         return res.status(400).json({ message: 'Invalid reset token purpose.' });
       }
 
       const user = await prisma.user.findUnique({
-        where: { id: decoded.id },
+        where: decoded.email ? { email: decoded.email } : { id: decoded.id },
       });
 
       if (!user || user.is_deleted) {
@@ -332,7 +313,7 @@ export class AuthController {
         userId: user.id,
         action: 'UPDATE',
         module: 'AUTH',
-        newValue: { action: 'Password reset via token success' },
+        newValue: { action: 'Password reset via OTP success' },
         ipAddress: req.ip,
         userAgent: req.headers['user-agent'],
       });

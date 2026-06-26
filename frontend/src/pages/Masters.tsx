@@ -1,32 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import api from '../utils/api';
+import { useTranslation } from '../context/I18nContext';
 import { Plus, Trash2, Edit3, Play, CheckCircle2, XCircle, RotateCcw } from 'lucide-react';
-import { useTour } from '../context/TourContext';
 
 export const Masters: React.FC = () => {
+  const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<'settings' | 'loantypes' | 'rbac' | 'audits' | 'formulas' | 'restore'>('settings');
-
-  const { runTour, stepIndex, steps } = useTour();
-
-  // Sync activeTab with active tour step target selector
-  useEffect(() => {
-    if (runTour && steps[stepIndex]) {
-      const target = steps[stepIndex].target;
-      if (target === '#tour-settings-tab') {
-        setActiveTab('settings');
-      } else if (target === '#tour-loantypes-tab') {
-        setActiveTab('loantypes');
-      } else if (target === '#tour-rbac-tab') {
-        setActiveTab('rbac');
-      } else if (target === '#tour-audits-tab') {
-        setActiveTab('audits');
-      } else if (target === '#tour-formulas-tab') {
-        setActiveTab('formulas');
-      } else if (target === '#tour-restore-tab') {
-        setActiveTab('restore');
-      }
-    }
-  }, [runTour, stepIndex, steps]);
 
   // Master lookup options
   const [settings, setSettings] = useState<any[]>([]);
@@ -305,8 +284,8 @@ export const Masters: React.FC = () => {
 
       {/* Header */}
       <div>
-        <h2 className="text-xl font-bold font-display text-brand-navy dark:text-white">Masters Data & Admin parameters</h2>
-        <p className="text-xs text-gray-500 dark:text-brand-matte-text mt-0.5">Configure access maps, change global logic variables, customize loan models, and review system audit records.</p>
+        <h2 className="text-xl font-bold font-display text-brand-navy dark:text-white">{t('mastersTitle')}</h2>
+        <p className="text-xs text-gray-500 dark:text-brand-matte-text mt-0.5">{t('mastersSubtitle')}</p>
       </div>
 
       {/* Tabs */}
@@ -319,7 +298,7 @@ export const Masters: React.FC = () => {
               : 'border-transparent text-gray-500 dark:text-brand-matte-text hover:text-brand-navy'
           }`}
         >
-          System Settings
+          {t('systemSettingsTab')}
         </button>
         <button
           onClick={() => setActiveTab('loantypes')}
@@ -329,7 +308,7 @@ export const Masters: React.FC = () => {
               : 'border-transparent text-gray-500 dark:text-brand-matte-text hover:text-brand-navy'
           }`}
         >
-          Loan Categories Customizer
+          {t('loanCategoriesTab')}
         </button>
         <button
           onClick={() => setActiveTab('rbac')}
@@ -339,7 +318,7 @@ export const Masters: React.FC = () => {
               : 'border-transparent text-gray-500 dark:text-brand-matte-text hover:text-brand-navy'
           }`}
         >
-          Role Permissions (RBAC)
+          {t('rbacTab')}
         </button>
         <button
           onClick={() => setActiveTab('audits')}
@@ -349,7 +328,7 @@ export const Masters: React.FC = () => {
               : 'border-transparent text-gray-500 dark:text-brand-matte-text hover:text-brand-navy'
           }`}
         >
-          Audit Ledger History
+          {t('auditLedgerTab')}
         </button>
         <button
           onClick={() => setActiveTab('formulas')}
@@ -359,7 +338,7 @@ export const Masters: React.FC = () => {
               : 'border-transparent text-gray-500 dark:text-brand-matte-text hover:text-brand-navy'
           }`}
         >
-          Formula Rules Engine
+          {t('formulasEngineTab')}
         </button>
         <button
           onClick={() => setActiveTab('restore')}
@@ -369,7 +348,7 @@ export const Masters: React.FC = () => {
               : 'border-transparent text-gray-500 dark:text-brand-matte-text hover:text-brand-navy'
           }`}
         >
-          Restore Deleted
+          {t('restoreDeletedTab')}
         </button>
       </div>
 

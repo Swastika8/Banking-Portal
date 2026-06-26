@@ -192,6 +192,312 @@ export class LoanController {
     }
   }
 
+  public static async import(req: Request, res: Response) {
+    try {
+      const {
+        customerId,
+        loanNumber,
+        loanTypeId,
+        amount,
+        interestTypeId,
+        interestRate,
+        tenureMonths,
+        startDate,
+        endDate,
+        collateralType,
+        collateralWeight,
+        collateralPurity,
+        purityUnit,
+        collateralValue,
+        collateralDescription,
+        status,
+        paymentHistoryType,
+        paymentHistoryValue,
+      } = req.body;
+
+      if (!customerId || !loanTypeId || !amount || !interestTypeId || !interestRate || !tenureMonths || !startDate || !status) {
+        return res.status(400).json({ message: 'Missing required loan parameters.' });
+      }
+
+      const customer = await prisma.customer.findFirst({
+        where: { id: customerId, is_deleted: false },
+      });
+      if (!customer) return res.status(404).json({ message: 'Customer not found.' });
+
+      const loanType = await prisma.loanTypeMaster.findFirst({
+        where: { id: loanTypeId, is_deleted: false },
+      });
+      if (!loanType) return res.status(404).json({ message: 'Loan type not found.' });
+
+      const interestType = await prisma.interestTypeMaster.findFirst({
+        where: { id: interestTypeId, is_deleted: false },
+      });
+      if (!interestType) return res.status(404).json({ message: 'Interest type not found.' });
+
+      let targetStatusCode = 'APPROVED';
+      if (status === 'Completed' || status === 'Closed') {
+        targetStatusCode = 'CLOSED';
+      } else if (status === 'Defaulted') {
+        targetStatusCode = 'OVERDUE';
+      }
+
+      const targetStatus = await prisma.loanStatusMaster.findFirst({
+        where: { code: targetStatusCode, is_deleted: false },
+      });
+      if (!targetStatus) return res.status(500).json({ message: `Status code ${targetStatusCode} not found in config.` });
+
+      const startD = new Date(startDate);
+      const calculation = LoanEngineService.calculateSchedule(
+        amount,
+        interestRate,
+        tenureMonths,
+        interestType.code as 'SIMPLE' | 'COMPOUND',
+        startD
+      );
+
+      const totalInstallments = calculation.schedule.length;
+      let paidInstallmentsCount = 0;
+
+      if (targetStatusCode === 'CLOSED') {
+        paidInstallmentsCount = totalInstallments;
+      } else {
+        const val = parseFloat(paymentHistoryValue || '0');
+        if (paymentHistoryType === 'installments_paid') {
+          paidInstallmentsCount = Math.min(totalInstallments, Math.max(0, Math.floor(val)));
+        } else if (paymentHistoryType === 'principal_paid') {
+          let remainingP = val;
+          for (let i = 0; i < totalInstallments; i++) {
+            const instPrincipal = calculation.schedule[i].principalAmount;
+            if (remainingP >= instPrincipal) {
+              paidInstallmentsCount = i + 1;
+              remainingP -= instPrincipal;
+            } else {
+              break;
+            }
+          }
+        } else if (paymentHistoryType === 'interest_paid') {
+          let remainingI = val;
+          for (let i = 0; i < totalInstallments; i++) {
+            const instInterest = calculation.schedule[i].interestAmount;
+            if (remainingI >= instInterest) {
+              paidInstallmentsCount = i + 1;
+              remainingI -= instInterest;
+            } else {
+              break;
+            }
+          }
+        } else if (paymentHistoryType === 'remaining_balance') {
+          let remainingP = Math.max(0, amount - val);
+          for (let i = 0; i < totalInstallments; i++) {
+            const instPrincipal = calculation.schedule[i].principalAmount;
+            if (remainingP >= instPrincipal) {
+              paidInstallmentsCount = i + 1;
+              remainingP -= instPrincipal;
+            } else {
+              break;
+            }
+          }
+        }
+      }
+
+      let totalPaidPrincipal = 0;
+      let totalPaidInterest = 0;
+      for (let i = 0; i < paidInstallmentsCount; i++) {
+        totalPaidPrincipal += calculation.schedule[i].principalAmount;
+        totalPaidInterest += calculation.schedule[i].interestAmount;
+      }
+
+      const finalOutstandingPrincipal = Math.max(0, Math.round((amount - totalPaidPrincipal) * 100) / 100);
+      const finalOutstandingInterest = Math.max(0, Math.round((calculation.totalInterest - totalPaidInterest) * 100) / 100);
+
+      const purityUnitParam = purityUnit || 'PERCENTAGE';
+      let marketRateValue = 0;
+      let calculatedPurityRatio = 0;
+      let calculatedAppraisedValue = 0;
+      const manualCollateralValue = collateralValue !== null && collateralValue !== undefined && collateralValue !== ''
+        ? parseFloat(collateralValue)
+        : null;
+
+      if (collateralType && collateralWeight && collateralPurity) {
+        const rateRecord = await prisma.marketRate.findUnique({
+          where: { asset: collateralType.toUpperCase() },
+        });
+        marketRateValue = rateRecord ? rateRecord.rate : 0;
+
+        const purityVal = parseFloat(collateralPurity);
+        calculatedPurityRatio = purityUnitParam === 'KARAT' ? purityVal / 24 : purityVal / 100;
+        calculatedAppraisedValue = parseFloat(collateralWeight) * marketRateValue * calculatedPurityRatio;
+        calculatedAppraisedValue = Math.round(calculatedAppraisedValue * 100) / 100;
+      }
+
+      const appraisedValueAtLoanCreation =
+        manualCollateralValue !== null && !Number.isNaN(manualCollateralValue)
+          ? manualCollateralValue
+          : calculatedAppraisedValue;
+
+      const userEmail = req.user?.email || 'SYSTEM';
+
+      const emiPaymentType = await prisma.paymentTypeMaster.findFirst({
+        where: { code: 'EMI', is_deleted: false },
+      });
+      const emiTxType = await prisma.transactionTypeMaster.findFirst({
+        where: { code: 'EMI_PAYMENT', is_deleted: false },
+      });
+
+      if (!emiPaymentType || !emiTxType) {
+        return res.status(500).json({ message: 'EMI payment type or transaction type configuration is missing.' });
+      }
+
+      const loan = await prisma.$transaction(async (tx) => {
+        const newLoan = await tx.loan.create({
+          data: {
+            customerId,
+            loanTypeId,
+            amount,
+            interestTypeId,
+            interestRate,
+            tenureMonths,
+            startDate: startD,
+            statusId: targetStatus.id,
+            outstandingPrincipal: finalOutstandingPrincipal,
+            outstandingInterest: finalOutstandingInterest,
+            created_by: userEmail,
+          },
+        });
+
+        if (collateralType && collateralWeight) {
+          await tx.collateral.create({
+            data: {
+              loanId: newLoan.id,
+              type: collateralType,
+              weight: parseFloat(collateralWeight),
+              purity: collateralPurity ? parseFloat(collateralPurity) : null,
+              purityUnit: purityUnitParam,
+              value: appraisedValueAtLoanCreation,
+              marketRateAtLoanCreation: marketRateValue,
+              purityRatioAtLoanCreation: calculatedPurityRatio,
+              appraisedValueAtLoanCreation,
+              description: collateralDescription || (loanNumber ? `Imported loan #${loanNumber}` : null),
+              created_by: userEmail,
+            },
+          });
+        }
+
+        const scheduleData = calculation.schedule.map((inst, index) => {
+          const isPaid = index < paidInstallmentsCount;
+          return {
+            loanId: newLoan.id,
+            installmentNumber: inst.installmentNumber,
+            dueDate: inst.dueDate,
+            principalAmount: inst.principalAmount,
+            interestAmount: inst.interestAmount,
+            totalAmount: inst.totalAmount,
+            paidAmount: isPaid ? inst.totalAmount : 0,
+            status: isPaid ? 'PAID' : 'UNPAID',
+            created_by: userEmail,
+          };
+        });
+
+        await tx.emiSchedule.createMany({
+          data: scheduleData,
+        });
+
+        let accumulatedPaidPrincipal = 0;
+        let accumulatedPaidInterest = 0;
+
+        for (let i = 0; i < paidInstallmentsCount; i++) {
+          const inst = calculation.schedule[i];
+          accumulatedPaidPrincipal += inst.principalAmount;
+          accumulatedPaidInterest += inst.interestAmount;
+
+          const pRecord = await tx.payment.create({
+            data: {
+              loanId: newLoan.id,
+              paymentTypeId: emiPaymentType.id,
+              amount: inst.totalAmount,
+              principalPortion: inst.principalAmount,
+              interestPortion: inst.interestAmount,
+              penaltyPortion: 0,
+              remainingBalance: Math.max(0, amount - accumulatedPaidPrincipal),
+              referenceNumber: loanNumber ? `IMP-${loanNumber}-${i+1}` : `IMP-HIST-${newLoan.id}-${i+1}`,
+              notes: `Imported historical payment for installment #${i+1}`,
+              paymentDate: inst.dueDate,
+              created_by: userEmail,
+            },
+          });
+
+          await tx.loanTransaction.create({
+            data: {
+              loanId: newLoan.id,
+              transactionTypeId: emiTxType.id,
+              amount: -inst.totalAmount,
+              principalImpact: -inst.principalAmount,
+              interestImpact: -inst.interestAmount,
+              penaltyImpact: 0,
+              feeImpact: 0,
+              runningPrincipal: Math.max(0, amount - accumulatedPaidPrincipal),
+              runningInterest: Math.max(0, calculation.totalInterest - accumulatedPaidInterest),
+              runningTotal: Math.max(0, amount - accumulatedPaidPrincipal) + Math.max(0, calculation.totalInterest - accumulatedPaidInterest),
+              referenceId: pRecord.id,
+              referenceType: 'PAYMENT',
+              description: `Imported historical payment #${i+1} — Principal: ₹${inst.principalAmount.toFixed(2)}, Interest: ₹${inst.interestAmount.toFixed(2)}`,
+              createdBy: userEmail,
+            },
+          });
+        }
+
+        await tx.loanTimeline.create({
+          data: {
+            loanId: newLoan.id,
+            action: 'CREATED',
+            description: `Historical Loan of ₹${amount} imported into status ${status}. ${paidInstallmentsCount} of ${totalInstallments} installments pre-marked as Paid.`,
+            createdBy: userEmail,
+          },
+        });
+
+        if (targetStatusCode === 'CLOSED') {
+          await tx.loanTimeline.create({
+            data: {
+              loanId: newLoan.id,
+              action: 'LOAN_CLOSED',
+              description: `All ${totalInstallments} installments marked as paid in full. Historical loan closed.`,
+              createdBy: userEmail,
+            },
+          });
+        }
+
+        return newLoan;
+      });
+
+      await RiskService.calculate(customerId);
+
+      await AuditService.logAction({
+        userId: req.user?.id || null,
+        action: 'CREATE',
+        module: 'LOAN',
+        newValue: { loanId: loan.id, amount, customerId, status: 'IMPORTED' },
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent'],
+      });
+
+      const loanWithDetails = await prisma.loan.findUnique({
+        where: { id: loan.id },
+        include: { collateral: true },
+      });
+
+      return res.status(201).json({
+        loan: loanWithDetails,
+        emi: calculation.emi,
+        totalInterest: calculation.totalInterest,
+        totalPayable: calculation.totalPayable,
+      });
+
+    } catch (error) {
+      console.error('Import Loan Error:', error);
+      return res.status(500).json({ message: 'Internal server error.' });
+    }
+  }
+
   public static async update(req: Request, res: Response) {
     try {
       const loanId = parseInt(req.params.id);

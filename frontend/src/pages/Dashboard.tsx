@@ -3,7 +3,7 @@ import api from '../utils/api';
 import { toast } from 'react-hot-toast';
 import TransactionList from '../components/transactions/TransactionList';
 import { useApp } from '../context/AppContext';
-import { useTour } from '../context/TourContext';
+import { useTranslation } from '../context/I18nContext';
 import { formatCurrency } from '../utils/currency';
 import { useMarketConnectivity } from '../utils/useMarketConnectivity';
 import { AreaChart, Area, Tooltip, ResponsiveContainer } from 'recharts';
@@ -47,6 +47,7 @@ const GST_RATE = 0.03;
 
 export const Dashboard: React.FC = () => {
   const { hasPermission, theme } = useApp();
+  const { t } = useTranslation();
 
   // Search state
   const [searchQuery, setSearchQuery] = useState('');
@@ -66,6 +67,7 @@ export const Dashboard: React.FC = () => {
   const [showAddCustomer, setShowAddCustomer] = useState(false);
   const [showQuickCalc, setShowQuickCalc] = useState(false);
   const [showAddLoan, setShowAddLoan] = useState(false);
+  const [showImportLoan, setShowImportLoan] = useState(false);
   const [showAddNote, setShowAddNote] = useState(false);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [showEditLoanModal, setShowEditLoanModal] = useState(false);
@@ -94,48 +96,6 @@ export const Dashboard: React.FC = () => {
     startDate: '',
   });
 
-  // Centralized Tour Sync
-  const {
-    setDashboardHasWorkspace,
-    triggerSelectFirstCustomer,
-    setTriggerSelectFirstCustomer,
-    runTour,
-    stepIndex,
-    steps,
-  } = useTour();
-
-  useEffect(() => {
-    setDashboardHasWorkspace(workspace !== null);
-  }, [workspace, setDashboardHasWorkspace]);
-
-  // Sync workspace tab selection with tour step target selector
-  useEffect(() => {
-    if (runTour && workspace && steps[stepIndex]) {
-      const target = steps[stepIndex].target;
-      if (target === '#tour-loans-section' || target === '#tour-pending-approvals') {
-        setActiveTab('loans');
-      } else if (target === '#tour-payments-tab') {
-        setActiveTab('payments');
-      } else if (target === '#tour-timeline-tab') {
-        setActiveTab('timeline');
-      } else if (target === '#tour-notes-tab') {
-        setActiveTab('notes');
-      } else if (target === '#tour-documents-tab') {
-        setActiveTab('documents');
-      }
-    }
-  }, [runTour, stepIndex, steps, workspace]);
-
-  // Handle tour first customer auto-selection trigger
-  useEffect(() => {
-    if (triggerSelectFirstCustomer) {
-      if (!selectedCustomerId && customersList.length > 0) {
-        setSelectedCustomerId(customersList[0].id);
-      }
-      setTriggerSelectFirstCustomer(false);
-    }
-  }, [triggerSelectFirstCustomer, customersList, selectedCustomerId, setTriggerSelectFirstCustomer]);
-
   // Form states
   const [newCustomerForm, setNewCustomerForm] = useState({
     name: '',
@@ -161,10 +121,30 @@ export const Dashboard: React.FC = () => {
     interestRate: '',
     tenureMonths: '',
     startDate: new Date().toISOString().split('T')[0],
+    endDate: '',
     collateralType: 'GOLD',
     collateralWeight: '',
     collateralPurity: '',
     purityUnit: 'PERCENTAGE', // KARAT, PERCENTAGE
+    collateralValue: '',
+    collateralDescription: '',
+  });
+
+  const [importLoanForm, setImportLoanForm] = useState({
+    loanTypeId: '',
+    amount: '',
+    interestTypeId: '',
+    interestRate: '',
+    tenureMonths: '',
+    startDate: new Date().toISOString().split('T')[0],
+    currentStatus: 'APPROVED',
+    loanNumber: '',
+    paymentHistoryMode: 'INSTALLMENTS_PAID',
+    paymentHistoryValue: '',
+    collateralType: 'GOLD',
+    collateralWeight: '',
+    collateralPurity: '',
+    purityUnit: 'PERCENTAGE',
     collateralValue: '',
     collateralDescription: '',
   });
@@ -576,6 +556,19 @@ export const Dashboard: React.FC = () => {
   const handleAddLoan = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedCustomerId) return;
+
+    // Validate end date if tenure and startDate are set
+    if (newLoanForm.tenureMonths && newLoanForm.startDate && newLoanForm.endDate) {
+      const startD = new Date(newLoanForm.startDate);
+      const expectedEnd = new Date(startD);
+      expectedEnd.setMonth(expectedEnd.getMonth() + parseInt(newLoanForm.tenureMonths));
+      const expectedStr = expectedEnd.toISOString().split('T')[0];
+      if (newLoanForm.endDate !== expectedStr) {
+        toast.error(`${t('endDateMismatch')} ${expectedStr}`);
+        return;
+      }
+    }
+
     try {
       const body = {
         customerId: selectedCustomerId,
@@ -611,10 +604,54 @@ export const Dashboard: React.FC = () => {
 
       clearPendingCollateralImages();
       setShowAddLoan(false);
+      setNewLoanForm(prev => ({
+        ...prev,
+        amount: '', interestRate: '', tenureMonths: '',
+        startDate: new Date().toISOString().split('T')[0], endDate: '',
+        collateralWeight: '', collateralPurity: '', collateralValue: '', collateralDescription: '',
+      }));
       fetchCustomerWorkspace(selectedCustomerId);
       fetchGlobalStats();
     } catch (err: any) {
-      alert(err.response?.data?.message || 'Failed to create loan application.');
+      toast.error(err.response?.data?.message || 'Failed to create loan application.');
+    }
+  };
+
+  const handleImportLoan = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedCustomerId) return;
+    try {
+      await api.post('/loans/import', {
+        customerId: selectedCustomerId,
+        loanTypeId: parseInt(importLoanForm.loanTypeId),
+        amount: parseFloat(importLoanForm.amount),
+        interestTypeId: parseInt(importLoanForm.interestTypeId),
+        interestRate: parseFloat(importLoanForm.interestRate),
+        tenureMonths: parseInt(importLoanForm.tenureMonths),
+        startDate: importLoanForm.startDate,
+        currentStatus: importLoanForm.currentStatus,
+        loanNumber: importLoanForm.loanNumber || null,
+        paymentHistoryMode: importLoanForm.paymentHistoryMode,
+        paymentHistoryValue: importLoanForm.paymentHistoryValue ? parseFloat(importLoanForm.paymentHistoryValue) : null,
+        collateralType: importLoanForm.collateralType || null,
+        collateralWeight: importLoanForm.collateralWeight ? parseFloat(importLoanForm.collateralWeight) : null,
+        collateralPurity: importLoanForm.collateralPurity ? parseFloat(importLoanForm.collateralPurity) : null,
+        purityUnit: importLoanForm.purityUnit,
+        collateralValue: importLoanForm.collateralValue ? parseFloat(importLoanForm.collateralValue) : null,
+        collateralDescription: importLoanForm.collateralDescription || null,
+      });
+      toast.success(t('importSuccess'));
+      setShowImportLoan(false);
+      setImportLoanForm(prev => ({
+        ...prev,
+        amount: '', interestRate: '', tenureMonths: '', loanNumber: '',
+        paymentHistoryValue: '', startDate: new Date().toISOString().split('T')[0],
+        collateralWeight: '', collateralPurity: '', collateralValue: '', collateralDescription: '',
+      }));
+      fetchCustomerWorkspace(selectedCustomerId);
+      fetchGlobalStats();
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || t('importFailed'));
     }
   };
 
@@ -1449,14 +1486,22 @@ export const Dashboard: React.FC = () => {
                 <div id="tour-loans-section" className="bg-white dark:bg-brand-matte-card border border-gray-200 dark:border-brand-matte-border p-6 rounded-2xl shadow-sm">
                   <div className="bg-white dark:bg-brand-matte-card border border-gray-200 dark:border-brand-matte-border p-6 rounded-2xl shadow-sm">
                     <div className="flex items-center justify-between mb-6">
-                      <h3 className="text-sm font-bold uppercase tracking-wider text-brand-navy dark:text-white">Credit & Loan Accounts</h3>
+                      <h3 className="text-sm font-bold uppercase tracking-wider text-brand-navy dark:text-white">{t('creditAccounts')}</h3>
                       {hasPermission('Loan Create') && (
-                        <button
-                          onClick={() => setShowAddLoan(true)}
-                          className="flex items-center gap-1 text-xs px-3 py-1.5 bg-brand-gold text-brand-navy font-bold rounded-lg hover:bg-brand-gold-light transition-all"
-                        >
-                          <Plus size={14} /> New Loan
-                        </button>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => setShowImportLoan(true)}
+                            className="flex items-center gap-1 text-xs px-3 py-1.5 bg-gray-100 dark:bg-black border border-gray-200 dark:border-brand-matte-border text-gray-600 dark:text-brand-matte-text font-bold rounded-lg hover:border-brand-gold hover:text-brand-gold transition-all"
+                          >
+                            <Download size={14} /> {t('importLoanBtn')}
+                          </button>
+                          <button
+                            onClick={() => setShowAddLoan(true)}
+                            className="flex items-center gap-1 text-xs px-3 py-1.5 bg-brand-gold text-brand-navy font-bold rounded-lg hover:bg-brand-gold-light transition-all"
+                          >
+                            <Plus size={14} /> {t('newLoanBtn')}
+                          </button>
+                        </div>
                       )}
                     </div>
 
@@ -2264,13 +2309,23 @@ export const Dashboard: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="block text-[10px] uppercase font-bold text-gray-500 mb-1">Tenure (Months) *</label>
+                  <label className="block text-[10px] uppercase font-bold text-gray-500 mb-1">{t('tenure')} *</label>
                   <input
                     aria-label="New loan tenure in months"
                     type="number"
                     required
                     value={newLoanForm.tenureMonths}
-                    onChange={(e) => setNewLoanForm((prev) => ({ ...prev, tenureMonths: e.target.value }))}
+                    onChange={(e) => {
+                      const t2 = parseInt(e.target.value);
+                      const start = newLoanForm.startDate;
+                      let computedEnd = '';
+                      if (start && t2 > 0) {
+                        const d = new Date(start);
+                        d.setMonth(d.getMonth() + t2);
+                        computedEnd = d.toISOString().split('T')[0];
+                      }
+                      setNewLoanForm((prev) => ({ ...prev, tenureMonths: e.target.value, endDate: computedEnd }));
+                    }}
                     className="w-full px-3 py-2 bg-gray-50 dark:bg-black border border-gray-200 dark:border-brand-matte-border text-xs rounded-lg text-brand-navy dark:text-white focus:ring-1 focus:ring-brand-gold outline-none"
                   />
                 </div>
@@ -2278,14 +2333,35 @@ export const Dashboard: React.FC = () => {
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-[10px] uppercase font-bold text-gray-500 mb-1">Start / Disburse Date *</label>
+                  <label className="block text-[10px] uppercase font-bold text-gray-500 mb-1">{t('startDate')} *</label>
                   <input
                     aria-label="New loan start date"
                     type="date"
                     required
                     value={newLoanForm.startDate}
-                    onChange={(e) => setNewLoanForm((prev) => ({ ...prev, startDate: e.target.value }))}
+                    onChange={(e) => {
+                      const newStart = e.target.value;
+                      const tenure = parseInt(newLoanForm.tenureMonths);
+                      let computedEnd = '';
+                      if (newStart && tenure > 0) {
+                        const d = new Date(newStart);
+                        d.setMonth(d.getMonth() + tenure);
+                        computedEnd = d.toISOString().split('T')[0];
+                      }
+                      setNewLoanForm((prev) => ({ ...prev, startDate: newStart, endDate: computedEnd }));
+                    }}
                     className="w-full px-3 py-2 bg-gray-50 dark:bg-black border border-gray-200 dark:border-brand-matte-border text-xs rounded-lg text-brand-navy dark:text-white focus:ring-1 focus:ring-brand-gold outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] uppercase font-bold text-gray-500 mb-1">{t('endDate')}</label>
+                  <input
+                    aria-label="New loan maturity end date"
+                    type="date"
+                    value={newLoanForm.endDate}
+                    onChange={(e) => setNewLoanForm((prev) => ({ ...prev, endDate: e.target.value }))}
+                    className="w-full px-3 py-2 bg-gray-50 dark:bg-black border border-gray-200 dark:border-brand-matte-border text-xs rounded-lg text-brand-navy dark:text-white focus:ring-1 focus:ring-brand-gold outline-none"
+                    placeholder="Auto-calculated from tenure"
                   />
                 </div>
               </div>
@@ -3024,6 +3100,238 @@ export const Dashboard: React.FC = () => {
                 );
               })()}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: IMPORT EXISTING LOAN */}
+      {showImportLoan && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="w-full max-w-3xl bg-white dark:bg-brand-matte-card border border-gray-200 dark:border-brand-matte-border p-6 rounded-2xl shadow-2xl relative max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-5">
+              <div>
+                <h3 className="text-lg font-bold font-display text-brand-navy dark:text-white">{t('importLoanTitle')}</h3>
+                <p className="text-[11px] text-gray-500 dark:text-brand-matte-text mt-0.5">Reconstruct a pre-existing loan with historical payment data into the LMS.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowImportLoan(false)}
+                className="p-1.5 text-gray-400 hover:text-gray-600 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-black rounded-lg transition-all"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <form onSubmit={handleImportLoan} className="space-y-4">
+              {/* Row 1: Loan Type + Loan Number + Status */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-[10px] uppercase font-bold text-gray-500 mb-1">{t('loanType')} *</label>
+                  <select
+                    aria-label="Import loan type"
+                    required
+                    value={importLoanForm.loanTypeId}
+                    onChange={(e) => setImportLoanForm(prev => ({ ...prev, loanTypeId: e.target.value }))}
+                    className="w-full px-3 py-2 bg-gray-50 dark:bg-black border border-gray-200 dark:border-brand-matte-border text-xs rounded-lg text-brand-navy dark:text-white focus:ring-1 focus:ring-brand-gold outline-none"
+                  >
+                    <option value="">Select loan type</option>
+                    {masters.loanTypes.map((t2: any) => (
+                      <option key={t2.id} value={t2.id}>{t2.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[10px] uppercase font-bold text-gray-500 mb-1">{t('loanNumber')}</label>
+                  <input
+                    aria-label="Import loan number"
+                    type="text"
+                    placeholder="e.g. LN-2023-001"
+                    value={importLoanForm.loanNumber}
+                    onChange={(e) => setImportLoanForm(prev => ({ ...prev, loanNumber: e.target.value }))}
+                    className="w-full px-3 py-2 bg-gray-50 dark:bg-black border border-gray-200 dark:border-brand-matte-border text-xs rounded-lg text-brand-navy dark:text-white focus:ring-1 focus:ring-brand-gold outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] uppercase font-bold text-gray-500 mb-1">{t('currentStatus')}</label>
+                  <select
+                    aria-label="Import loan current status"
+                    value={importLoanForm.currentStatus}
+                    onChange={(e) => setImportLoanForm(prev => ({ ...prev, currentStatus: e.target.value }))}
+                    className="w-full px-3 py-2 bg-gray-50 dark:bg-black border border-gray-200 dark:border-brand-matte-border text-xs rounded-lg text-brand-navy dark:text-white focus:ring-1 focus:ring-brand-gold outline-none"
+                  >
+                    <option value="APPROVED">Active / Approved</option>
+                    <option value="CLOSED">Closed / Fully Repaid</option>
+                    <option value="DEFAULTED">Defaulted</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Row 2: Principal + Interest Type + Rate + Tenure */}
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <div>
+                  <label className="block text-[10px] uppercase font-bold text-gray-500 mb-1">{t('principalAmount')} *</label>
+                  <input
+                    aria-label="Import loan principal amount"
+                    type="number" step="0.01" required
+                    value={importLoanForm.amount}
+                    onChange={(e) => setImportLoanForm(prev => ({ ...prev, amount: e.target.value }))}
+                    className="w-full px-3 py-2 bg-gray-50 dark:bg-black border border-gray-200 dark:border-brand-matte-border text-xs rounded-lg text-brand-navy dark:text-white focus:ring-1 focus:ring-brand-gold outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] uppercase font-bold text-gray-500 mb-1">{t('interestType')} *</label>
+                  <select
+                    aria-label="Import loan interest type"
+                    required
+                    value={importLoanForm.interestTypeId}
+                    onChange={(e) => setImportLoanForm(prev => ({ ...prev, interestTypeId: e.target.value }))}
+                    className="w-full px-3 py-2 bg-gray-50 dark:bg-black border border-gray-200 dark:border-brand-matte-border text-xs rounded-lg text-brand-navy dark:text-white focus:ring-1 focus:ring-brand-gold outline-none"
+                  >
+                    <option value="">Select type</option>
+                    {masters.interestTypes.map((t2: any) => (
+                      <option key={t2.id} value={t2.id}>{t2.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[10px] uppercase font-bold text-gray-500 mb-1">{t('interestRate')} *</label>
+                  <input
+                    aria-label="Import loan interest rate"
+                    type="number" step="0.01" required
+                    value={importLoanForm.interestRate}
+                    onChange={(e) => setImportLoanForm(prev => ({ ...prev, interestRate: e.target.value }))}
+                    className="w-full px-3 py-2 bg-gray-50 dark:bg-black border border-gray-200 dark:border-brand-matte-border text-xs rounded-lg text-brand-navy dark:text-white focus:ring-1 focus:ring-brand-gold outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] uppercase font-bold text-gray-500 mb-1">{t('tenure')} *</label>
+                  <input
+                    aria-label="Import loan tenure months"
+                    type="number" required
+                    value={importLoanForm.tenureMonths}
+                    onChange={(e) => setImportLoanForm(prev => ({ ...prev, tenureMonths: e.target.value }))}
+                    className="w-full px-3 py-2 bg-gray-50 dark:bg-black border border-gray-200 dark:border-brand-matte-border text-xs rounded-lg text-brand-navy dark:text-white focus:ring-1 focus:ring-brand-gold outline-none"
+                  />
+                </div>
+              </div>
+
+              {/* Row 3: Start Date */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-[10px] uppercase font-bold text-gray-500 mb-1">{t('startDate')} *</label>
+                  <input
+                    aria-label="Import loan original start date"
+                    type="date" required
+                    value={importLoanForm.startDate}
+                    onChange={(e) => setImportLoanForm(prev => ({ ...prev, startDate: e.target.value }))}
+                    className="w-full px-3 py-2 bg-gray-50 dark:bg-black border border-gray-200 dark:border-brand-matte-border text-xs rounded-lg text-brand-navy dark:text-white focus:ring-1 focus:ring-brand-gold outline-none"
+                  />
+                </div>
+              </div>
+
+              {/* Payment History Section */}
+              <div className="border-t border-gray-100 dark:border-brand-matte-border pt-4 mt-2">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-brand-navy dark:text-white mb-3">{t('paymentHistoryEntry')}</h4>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-[10px] uppercase font-bold text-gray-500 mb-1">Entry Mode</label>
+                    <select
+                      aria-label="Payment history entry mode"
+                      value={importLoanForm.paymentHistoryMode}
+                      onChange={(e) => setImportLoanForm(prev => ({ ...prev, paymentHistoryMode: e.target.value }))}
+                      className="w-full px-3 py-2 bg-gray-50 dark:bg-black border border-gray-200 dark:border-brand-matte-border text-xs rounded-lg text-brand-navy dark:text-white focus:ring-1 focus:ring-brand-gold outline-none"
+                    >
+                      <option value="INSTALLMENTS_PAID">{t('installmentsPaidOption')}</option>
+                      <option value="PRINCIPAL_PAID">{t('principalPaidOption')}</option>
+                      <option value="INTEREST_PAID">{t('interestPaidOption')}</option>
+                      <option value="REMAINING_BALANCE">{t('remainingBalanceOption')}</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] uppercase font-bold text-gray-500 mb-1">{t('paymentHistoryValue')}</label>
+                    <input
+                      aria-label="Payment history value"
+                      type="number" step="0.01" min="0"
+                      placeholder={importLoanForm.paymentHistoryMode === 'INSTALLMENTS_PAID' ? 'e.g. 6' : 'e.g. 50000'}
+                      value={importLoanForm.paymentHistoryValue}
+                      onChange={(e) => setImportLoanForm(prev => ({ ...prev, paymentHistoryValue: e.target.value }))}
+                      className="w-full px-3 py-2 bg-gray-50 dark:bg-black border border-gray-200 dark:border-brand-matte-border text-xs rounded-lg text-brand-navy dark:text-white focus:ring-1 focus:ring-brand-gold outline-none"
+                    />
+                  </div>
+                </div>
+                <p className="text-[10px] text-gray-400 dark:text-brand-matte-text mt-2 italic">
+                  Leave payment value at 0 or blank to import as a new loan with no prior payments.
+                </p>
+              </div>
+
+              {/* Collateral (optional) */}
+              <div className="border-t border-gray-100 dark:border-brand-matte-border pt-4">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-brand-navy dark:text-white mb-3">{t('collateralValuation')} <span className="font-normal text-gray-400 normal-case">(optional)</span></h4>
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                  <div>
+                    <label className="block text-[10px] uppercase font-bold text-gray-500 mb-1">{t('assetCategory')}</label>
+                    <select
+                      aria-label="Import collateral asset category"
+                      value={importLoanForm.collateralType}
+                      onChange={(e) => setImportLoanForm(prev => ({ ...prev, collateralType: e.target.value }))}
+                      className="w-full px-3 py-2 bg-gray-50 dark:bg-black border border-gray-200 dark:border-brand-matte-border text-xs rounded-lg text-brand-navy dark:text-white focus:ring-1 focus:ring-brand-gold outline-none"
+                    >
+                      <option value="GOLD">Gold Assets</option>
+                      <option value="SILVER">Silver Assets</option>
+                      <option value="VEHICLE">Vehicle Title</option>
+                      <option value="PROPERTY">Real Estate</option>
+                      <option value="OTHER">Other</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] uppercase font-bold text-gray-500 mb-1">{t('weightGrams')}</label>
+                    <input
+                      aria-label="Import collateral weight"
+                      type="number" step="0.01"
+                      value={importLoanForm.collateralWeight}
+                      onChange={(e) => setImportLoanForm(prev => ({ ...prev, collateralWeight: e.target.value }))}
+                      className="w-full px-3 py-2 bg-gray-50 dark:bg-black border border-gray-200 dark:border-brand-matte-border text-xs rounded-lg text-brand-navy dark:text-white focus:ring-1 focus:ring-brand-gold outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] uppercase font-bold text-gray-500 mb-1">{t('purityValue')}</label>
+                    <input
+                      aria-label="Import collateral purity"
+                      type="number" step="0.01"
+                      value={importLoanForm.collateralPurity}
+                      onChange={(e) => setImportLoanForm(prev => ({ ...prev, collateralPurity: e.target.value }))}
+                      className="w-full px-3 py-2 bg-gray-50 dark:bg-black border border-gray-200 dark:border-brand-matte-border text-xs rounded-lg text-brand-navy dark:text-white focus:ring-1 focus:ring-brand-gold outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] uppercase font-bold text-gray-500 mb-1">{t('appraisedValue')}</label>
+                    <input
+                      aria-label="Import collateral appraised value"
+                      type="number" step="0.01"
+                      value={importLoanForm.collateralValue}
+                      onChange={(e) => setImportLoanForm(prev => ({ ...prev, collateralValue: e.target.value }))}
+                      className="w-full px-3 py-2 bg-gray-50 dark:bg-black border border-gray-200 dark:border-brand-matte-border text-xs rounded-lg text-brand-navy dark:text-white focus:ring-1 focus:ring-brand-gold outline-none"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3 pt-4 justify-end border-t border-gray-100 dark:border-brand-matte-border">
+                <button
+                  type="button"
+                  onClick={() => setShowImportLoan(false)}
+                  className="px-4 py-2 bg-gray-100 hover:bg-gray-200 dark:bg-brand-matte-card dark:hover:bg-black border border-gray-200 dark:border-brand-matte-border text-xs font-semibold rounded-lg text-gray-500"
+                >
+                  {t('cancelBtn')}
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 bg-brand-gold hover:bg-brand-gold-light text-brand-navy font-bold text-xs rounded-lg flex items-center gap-1.5"
+                >
+                  <Download size={14} /> {t('importActionBtn')}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

@@ -9,6 +9,7 @@ router.use(authMiddleware);
 
 // Standard loan operations
 router.post('/create', requirePermission('Loan Create'), LoanController.create);
+router.post('/import', requirePermission('Loan Create'), LoanController.import);
 router.put('/:id', requirePermission('Loan Update'), LoanController.update);
 router.post('/approve/:id', requirePermission('Loan Approve'), LoanController.approve);
 router.post('/reject/:id', requirePermission('Loan Reject'), LoanController.reject);

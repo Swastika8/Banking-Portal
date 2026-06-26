@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
-import { useTour } from '../context/TourContext';
+import { useTranslation } from '../context/I18nContext';
+import { Language } from '../locales/translations';
 import { NavLink } from 'react-router-dom';
 import { useMarketConnectivity } from '../utils/useMarketConnectivity';
 import { useOfflineQueue } from '../utils/useOfflineQueue';
@@ -16,15 +17,13 @@ import {
   ChevronLeft,
   ChevronRight,
   Users,
-  HelpCircle,
   RefreshCw,
 } from 'lucide-react';
 
 export const Shell: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, logout, theme, toggleTheme, hasPermission } = useApp();
-  const { startTour, restartTour } = useTour();
+  const { t, language, setLanguage } = useTranslation();
   const [isCollapsed, setIsCollapsed] = useState(false);
-  const [showHelpPopover, setShowHelpPopover] = useState(false);
 
   // Live connectivity + sync status for header indicators
   const { connectivityStatus, lastSuccessfulSync } = useMarketConnectivity();
@@ -55,11 +54,11 @@ export const Shell: React.FC<{ children: React.ReactNode }> = ({ children }) => 
           </div>
           {!isCollapsed && (
             <div className="transition-opacity duration-300 min-w-0">
-              <span className="font-bold text-sm tracking-wider uppercase block text-brand-navy dark:text-white truncate">
-                Luxury Bank
+              <span className="font-bold text-xs tracking-wide leading-tight block text-brand-navy dark:text-white">
+                {t('logoTitle')}
               </span>
               <span className="text-[10px] text-brand-gold font-bold tracking-widest block uppercase">
-                LMS Platform
+                {t('logoSubtitle')}
               </span>
             </div>
           )}
@@ -100,7 +99,7 @@ export const Shell: React.FC<{ children: React.ReactNode }> = ({ children }) => 
             }
           >
             <LayoutDashboard size={18} className="flex-shrink-0" />
-            {!isCollapsed && <span className="transition-opacity duration-300">Workspace Dashboard</span>}
+            {!isCollapsed && <span className="transition-opacity duration-300">{t('dashboard')}</span>}
           </NavLink>
 
           {hasPermission('Customer View') && (
@@ -118,7 +117,7 @@ export const Shell: React.FC<{ children: React.ReactNode }> = ({ children }) => 
               }
             >
               <Users size={18} className="flex-shrink-0" />
-              {!isCollapsed && <span className="transition-opacity duration-300">Customers</span>}
+              {!isCollapsed && <span className="transition-opacity duration-300">{t('customers')}</span>}
             </NavLink>
           )}  
           {hasPermission('Report View') && (
@@ -136,7 +135,7 @@ export const Shell: React.FC<{ children: React.ReactNode }> = ({ children }) => 
               }
             >
               <BarChart3 size={18} className="flex-shrink-0" />
-              {!isCollapsed && <span className="transition-opacity duration-300">Reports Manager</span>}
+              {!isCollapsed && <span className="transition-opacity duration-300">{t('reports')}</span>}
             </NavLink>
           )}
 
@@ -155,7 +154,7 @@ export const Shell: React.FC<{ children: React.ReactNode }> = ({ children }) => 
               }
             >
               <Sliders size={18} className="flex-shrink-0" />
-              {!isCollapsed && <span className="transition-opacity duration-300">Masters & Settings</span>}
+              {!isCollapsed && <span className="transition-opacity duration-300">{t('masters')}</span>}
             </NavLink>
           )}
         </nav>
@@ -164,7 +163,26 @@ export const Shell: React.FC<{ children: React.ReactNode }> = ({ children }) => 
         <div className="flex-1" />
 
         {/* Sidebar Footer Controls */}
-        <div className="p-4 border-t border-gray-100 dark:border-brand-matte-border space-y-2 flex-shrink-0">
+        <div className="p-4 border-t border-gray-100 dark:border-brand-matte-border space-y-3 flex-shrink-0">
+          {/* Language Selector */}
+          <div className={`flex flex-col gap-1 pb-1 ${isCollapsed ? 'items-center px-0' : 'px-2'}`}>
+            {!isCollapsed && (
+              <span className="text-[9px] text-gray-400 dark:text-brand-matte-text font-bold uppercase tracking-wider block">
+                Language / भाषा
+              </span>
+            )}
+            <select
+              value={language}
+              onChange={(e) => setLanguage(e.target.value as Language)}
+              className={`bg-transparent text-xs text-gray-600 dark:text-white border border-gray-200 dark:border-brand-matte-border rounded-lg px-2 py-1.5 focus:outline-none focus:border-brand-gold ${isCollapsed ? 'w-12 text-[10px] px-1 text-center' : 'w-full'}`}
+              title="Change Language"
+            >
+              <option value="en" className="bg-white dark:bg-brand-matte-card text-black dark:text-white">English</option>
+              <option value="hi" className="bg-white dark:bg-brand-matte-card text-black dark:text-white">हिन्दी</option>
+              <option value="mr" className="bg-white dark:bg-brand-matte-card text-black dark:text-white">मराठी</option>
+            </select>
+          </div>
+
           {/* Theme Toggler */}
           <button
             onClick={toggleTheme}
@@ -173,7 +191,7 @@ export const Shell: React.FC<{ children: React.ReactNode }> = ({ children }) => 
             <div className="flex-shrink-0">
               {theme === 'dark' ? <Sun size={18} className="text-brand-gold" /> : <Moon size={18} />}
             </div>
-            {!isCollapsed && <span className="transition-opacity duration-300">{theme === 'dark' ? 'Light Theme' : 'Dark Theme'}</span>}
+            {!isCollapsed && <span className="transition-opacity duration-300">{theme === 'dark' ? t('lightTheme') : t('darkTheme')}</span>}
           </button>
 
           {/* Logout Button */}
@@ -182,7 +200,7 @@ export const Shell: React.FC<{ children: React.ReactNode }> = ({ children }) => 
             className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm text-red-500 hover:bg-red-500/10 transition-all text-left font-semibold ${isCollapsed ? 'justify-center px-2' : ''}`}
           >
             <LogOut size={18} className="flex-shrink-0" />
-            {!isCollapsed && <span className="transition-opacity duration-300">Sign Out</span>}
+            {!isCollapsed && <span className="transition-opacity duration-300">{t('signOut')}</span>}
           </button>
         </div>
       </aside>
@@ -211,13 +229,13 @@ export const Shell: React.FC<{ children: React.ReactNode }> = ({ children }) => 
               }`}
             >
               {syncStatus === 'synced' && (
-                <><span className="w-1.5 h-1.5 rounded-full bg-green-500 flex-shrink-0" />Synced</>
+                <><span className="w-1.5 h-1.5 rounded-full bg-green-500 flex-shrink-0" />{t('synced')}</>
               )}
               {syncStatus === 'pending' && (
-                <><span className="w-1.5 h-1.5 rounded-full bg-amber-400 flex-shrink-0" />Pending ({pendingCount})</>
+                <><span className="w-1.5 h-1.5 rounded-full bg-amber-400 flex-shrink-0" />{t('pending')} ({pendingCount})</>
               )}
               {syncStatus === 'syncing' && (
-                <><RefreshCw size={10} className="animate-spin flex-shrink-0" />Syncing...</>
+                <><RefreshCw size={10} className="animate-spin flex-shrink-0" />{t('syncing')}</>
               )}
             </button>
 
@@ -227,30 +245,30 @@ export const Shell: React.FC<{ children: React.ReactNode }> = ({ children }) => 
             {connectivityStatus === 'live' && (
               <span className="flex items-center gap-1.5">
                 <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse flex-shrink-0" />
-                <span>LMS Connected <span className="text-green-500">· Live Rates</span></span>
+                <span>{t('connectedLive')}</span>
               </span>
             )}
             {connectivityStatus === 'cached' && (
               <span className="flex items-center gap-1.5" title={`Last live sync: ${lastSuccessfulSync?.toLocaleString() || 'unknown'}`}>
                 <span className="w-2 h-2 rounded-full bg-amber-400 flex-shrink-0" />
-                <span>LMS Connected <span className="text-amber-400">· Cached Rates</span></span>
+                <span>{t('connectedCached')}</span>
               </span>
             )}
             {connectivityStatus === 'backend_offline' && (
               <span className="flex items-center gap-1.5">
                 <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse flex-shrink-0" />
-                <span className="text-red-500">Backend Offline</span>
+                <span className="text-red-500">{t('backendOffline')}</span>
               </span>
             )}
             {connectivityStatus === 'loading' && (
               <span className="flex items-center gap-1.5">
                 <RefreshCw size={10} className="animate-spin text-gray-400 flex-shrink-0" />
-                <span>Connecting...</span>
+                <span>{t('connecting')}</span>
               </span>
             )}
 
             <div className="h-4 w-px bg-gray-200 dark:bg-brand-matte-border" />
-            <span>Timezone: <span className="font-bold">IST</span></span>
+            <span>{t('timezone')}: <span className="font-bold">{t('timezoneLabel')}</span></span>
           </div>
         </header>
 
@@ -259,48 +277,6 @@ export const Shell: React.FC<{ children: React.ReactNode }> = ({ children }) => 
           {children}
         </div>
       </main>
-
-      {/* Global Help Floating Button & Popover */}
-      <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end">
-        {showHelpPopover && (
-          <div className="mb-3 bg-[#121212] border border-[#C5A880] rounded-xl p-3 shadow-[0_10px_30px_rgba(0,0,0,0.8),0_0_15px_rgba(197,168,128,0.1)] text-white w-52 flex flex-col gap-1.5 animate-fade-in z-50">
-            <div className="text-[9px] uppercase font-bold text-[#C5A880] tracking-widest pb-1.5 border-b border-[#C5A880]/20 mb-1">
-              LMS Help Desk
-            </div>
-            <button
-              onClick={() => {
-                startTour();
-                setShowHelpPopover(false);
-              }}
-              className="w-full text-left py-1.5 px-2 hover:bg-[#C5A880]/10 text-[11px] font-semibold rounded-lg text-gray-200 hover:text-white transition-all"
-            >
-              🚀 Start/Resume Tour
-            </button>
-            <button
-              onClick={() => {
-                restartTour();
-                setShowHelpPopover(false);
-              }}
-              className="w-full text-left py-1.5 px-2 hover:bg-[#C5A880]/10 text-[11px] font-semibold rounded-lg text-gray-200 hover:text-white transition-all"
-            >
-              🔄 Restart Walkthrough
-            </button>
-            <button
-              onClick={() => setShowHelpPopover(false)}
-              className="w-full text-center py-1 bg-brand-navy border border-gray-700 hover:border-gray-500 text-[9px] font-bold rounded-lg text-gray-400 hover:text-white transition-all mt-1"
-            >
-              Close
-            </button>
-          </div>
-        )}
-        <button
-          onClick={() => setShowHelpPopover(!showHelpPopover)}
-          className="w-14 h-14 bg-[#C5A880] text-[#060F24] shadow-[0_6px_24px_rgba(197,168,128,0.4),0_0_10px_rgba(197,168,128,0.2)] border border-[#C5A880]/30 hover:bg-[#DCC39E] hover:scale-105 active:scale-95 rounded-full flex items-center justify-center transition-all cursor-pointer"
-          title="LMS Interactive Help & Onboarding Tour"
-        >
-          <HelpCircle size={28} />
-        </button>
-      </div>
     </div>
   );
 };

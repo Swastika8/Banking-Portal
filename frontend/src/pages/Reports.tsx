@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import api from '../utils/api';
+import { useTranslation } from '../context/I18nContext';
 import {
   FileDown,
   Search,
@@ -12,6 +13,7 @@ import {
 import { formatCurrency } from '../utils/formatters';
 
 export const Reports: React.FC = () => {
+  const { t } = useTranslation();
   // Filters
   const [loanTypes, setLoanTypes] = useState<any[]>([]);
   const [statuses, setStatuses] = useState<any[]>([]);
@@ -158,8 +160,8 @@ export const Reports: React.FC = () => {
       
       {/* Page Header */}
       <div>
-        <h2 className="text-xl font-bold font-display text-brand-navy dark:text-white">Reporting Ledger & Export Manager</h2>
-        <p className="text-xs text-gray-500 dark:text-brand-matte-text mt-0.5">Filter the system credit records, audit outstanding amounts, and compile spreadsheet or document logs.</p>
+        <h2 className="text-xl font-bold font-display text-brand-navy dark:text-white">{t('reportsTitle')}</h2>
+        <p className="text-xs text-gray-500 dark:text-brand-matte-text mt-0.5">{t('reportsSubtitle')}</p>
       </div>
 
       {/* Stats Summary Panel */}
@@ -304,7 +306,7 @@ export const Reports: React.FC = () => {
                 type="submit"
                 className="px-5 py-2 bg-brand-gold hover:bg-brand-gold-light text-brand-navy font-bold text-xs rounded-lg shadow-md transition-all flex items-center gap-1.5"
               >
-                <Search size={14} /> Filter Report
+                <Search size={14} /> {t('searchBtn')}
               </button>
             </div>
           </div>
@@ -332,7 +334,7 @@ export const Reports: React.FC = () => {
                 download
                 className="inline-flex items-center gap-1 text-[11px] font-bold px-3 py-1.5 bg-brand-gold hover:bg-brand-gold-light text-brand-navy rounded-lg transition-all"
               >
-                <FileDown size={14} /> Export PDF
+                <FileDown size={14} /> {t('exportPdf')}
               </a>
             </div>
           )}

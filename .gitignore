@@ -103,3 +103,23 @@ coverage/
 *.local
 *.pem
 .agents/
+
+# ========================
+# Uploads (user-uploaded collateral photos)
+# ========================
+backend/uploads/
+
+# ========================
+# Frontend dist (build artifact — generated, not source)
+# ========================
+frontend/dist/
+
+# ========================
+# Backend compiled JS (tsc output)
+# ========================
+backend/dist/
+
+# ========================
+# Package locks (optional — remove these lines if you want to keep them)
+# ========================
+# package-lock.json

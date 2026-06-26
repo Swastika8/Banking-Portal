@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import api from '../utils/api';
 import { useNavigate } from 'react-router-dom';
+import { useTranslation } from '../context/I18nContext';
 import { 
 Search, 
 Phone, 
@@ -13,6 +14,7 @@ Users,
 
 
 export const Customers: React.FC = () => {
+  const { t } = useTranslation();
   const [searchQuery, setSearchQuery] = useState('');
   const [customersList, setCustomersList] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -54,7 +56,7 @@ export const Customers: React.FC = () => {
         <div>
           <h1 className="text-xl font-bold font-display text-brand-navy dark:text-white flex items-center gap-2">
             <Users size={22} className="text-brand-gold" />
-            Customer Directory
+            {t('customers')}
           </h1>
           <p className="text-xs text-gray-400 dark:text-brand-matte-text mt-0.5">
             {loading ? 'Loading...' : `${customersList.length} customer${customersList.length !== 1 ? 's' : ''} registered`}
@@ -71,7 +73,7 @@ export const Customers: React.FC = () => {
           type="text"
           value={searchQuery}
           onChange={handleSearchChange}
-          placeholder="Search by ID, Name, Mobile, or Email..."
+          placeholder={t('searchPlaceholder')}
           className="w-full pl-10 pr-4 py-2.5 bg-white dark:bg-brand-matte-card border border-gray-200 dark:border-brand-matte-border text-sm text-brand-navy dark:text-white rounded-xl focus:outline-none focus:ring-1 focus:ring-brand-gold shadow-sm transition-all"
         />
       </div>
@@ -80,11 +82,11 @@ export const Customers: React.FC = () => {
       <div id="tour-customers-table" className="bg-white dark:bg-brand-matte-card border border-gray-200 dark:border-brand-matte-border rounded-2xl shadow-sm overflow-hidden">
         {loading ? (
           <div className="p-16 text-center text-gray-400 dark:text-brand-matte-text text-sm">
-            Loading customers...
+            {t('syncing')}
           </div>
         ) : customersList.length === 0 ? (
           <div className="p-16 text-center text-gray-400 dark:text-brand-matte-text text-sm">
-            No customers found matching your search.
+            {t('noCustomerSelected')}
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -92,12 +94,12 @@ export const Customers: React.FC = () => {
               <thead>
                 <tr className="bg-gray-50 dark:bg-black/20 border-b border-gray-200 dark:border-brand-matte-border text-[10px] uppercase font-bold text-gray-500 dark:text-brand-matte-text tracking-wider">
                   <th className="px-5 py-3">ID</th>
-                  <th className="px-5 py-3">Customer</th>
-                  <th className="px-5 py-3">Contact</th>
-                  <th className="px-5 py-3">Location</th>
-                  <th className="px-5 py-3">Occupation</th>
-                  <th className="px-5 py-3">Risk</th>
-                  <th className="px-5 py-3 text-center">Open</th>
+                  <th className="px-5 py-3">{t('customers')}</th>
+                  <th className="px-5 py-3">{t('kycInfoLabel')}</th>
+                  <th className="px-5 py-3">{t('addressLabel')}</th>
+                  <th className="px-5 py-3">{t('occupationLabel')}</th>
+                  <th className="px-5 py-3">{t('riskLevel')}</th>
+                  <th className="px-5 py-3 text-center">&rarr;</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 dark:divide-brand-matte-border">

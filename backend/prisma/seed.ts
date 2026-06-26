@@ -283,11 +283,12 @@ async function main() {
 
   const dbCustomers: Record<string, any> = {};
   for (const cust of customers) {
-    dbCustomers[cust.name] = await prisma.customer.upsert({
-      where: { mobile: cust.mobile },
-      update: {},
-      create: cust,
-    });
+    const existing = await prisma.customer.findFirst({ where: { mobile: cust.mobile, is_deleted: false } });
+    if (existing) {
+      dbCustomers[cust.name] = existing;
+    } else {
+      dbCustomers[cust.name] = await prisma.customer.create({ data: cust });
+    }
   }
 
   // 8. Seed Loans & EMI Schedules

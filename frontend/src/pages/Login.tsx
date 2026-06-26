@@ -1,11 +1,13 @@
 import React, { useState } from 'react';
 import api from '../utils/api';
 import { useApp } from '../context/AppContext';
+import { useTranslation } from '../context/I18nContext';
 import { Link } from 'react-router-dom';
 import { Sun, Moon, Lock, Mail, Landmark } from 'lucide-react';
 
 export const Login: React.FC = () => {
   const { login, theme, toggleTheme } = useApp();
+  const { t } = useTranslation();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -48,10 +50,10 @@ export const Login: React.FC = () => {
             <Landmark size={32} />
           </div>
           <h1 className="text-2xl font-bold font-display text-brand-navy dark:text-white">
-            LUXURY FINANCE
+            {t('loginTitle')}
           </h1>
           <p className="text-sm text-gray-500 dark:text-brand-matte-text mt-1">
-            Loan Management System Workspace
+            {t('loginSubtitle')}
           </p>
         </div>
 
@@ -64,7 +66,7 @@ export const Login: React.FC = () => {
         <form onSubmit={handleSubmit} className="space-y-5">
           <div>
             <label className="block text-xs font-semibold uppercase tracking-wider text-brand-navy/70 dark:text-brand-matte-text mb-2">
-              Email Address
+              {t('emailLabel')}
             </label>
             <div className="relative">
               <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-gray-400">
@@ -83,7 +85,7 @@ export const Login: React.FC = () => {
 
           <div>
             <label className="block text-xs font-semibold uppercase tracking-wider text-brand-navy/70 dark:text-brand-matte-text mb-2">
-              Password
+              {t('passwordLabel')}
             </label>
             <div className="relative">
               <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-gray-400">
@@ -105,7 +107,7 @@ export const Login: React.FC = () => {
               to="/forgot-password"
               className="text-brand-gold hover:text-brand-gold-light hover:underline font-medium transition-all"
             >
-              Forgot Password?
+              {t('forgotPasswordLink')}
             </Link>
           </div>
 
@@ -114,18 +116,18 @@ export const Login: React.FC = () => {
             disabled={loading}
             className="w-full py-3 bg-gradient-to-r from-brand-gold-dark to-brand-gold hover:from-brand-gold hover:to-brand-gold-light text-brand-navy dark:text-brand-navy-dark font-bold rounded-xl shadow-lg transition-all transform hover:-translate-y-0.5 active:translate-y-0 disabled:opacity-50"
           >
-            {loading ? 'AUTHENTICATING...' : 'SECURE SIGN IN'}
+            {loading ? 'AUTHENTICATING...' : t('signInBtn').toUpperCase()}
           </button>
         </form>
 
         <div className="mt-8 pt-6 border-t border-gray-100 dark:border-brand-matte-border text-center">
           <p className="text-sm text-gray-500 dark:text-brand-matte-text">
-            Don't have an account?{' '}
+            {t('noAccountText')}{' '}
             <Link
               to="/register"
               className="text-brand-gold hover:text-brand-gold-light hover:underline font-bold transition-all"
             >
-              Create Account
+              {t('registerLink')}
             </Link>
           </p>
         </div>
@@ -133,3 +135,4 @@ export const Login: React.FC = () => {
     </div>
   );
 };
+
