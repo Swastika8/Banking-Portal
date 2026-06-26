@@ -163,7 +163,7 @@ export const Reports: React.FC = () => {
       </div>
 
       {/* Stats Summary Panel */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+      <div id="tour-reports-stats" className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
         <div className="bg-white dark:bg-brand-matte-card border border-gray-200 dark:border-brand-matte-border p-5 rounded-2xl flex items-center gap-4">
           <div className="p-3 bg-brand-gold/10 text-brand-gold rounded-xl"><IndianRupee size={20} /></div>
           <div>
@@ -198,7 +198,7 @@ export const Reports: React.FC = () => {
       </div>
 
       {/* Filter Form Card */}
-      <div className="bg-white dark:bg-brand-matte-card border border-gray-200 dark:border-brand-matte-border p-6 rounded-2xl shadow-sm">
+      <div id="tour-reports-filters" className="bg-white dark:bg-brand-matte-card border border-gray-200 dark:border-brand-matte-border p-6 rounded-2xl shadow-sm">
         <div className="flex items-center gap-2 mb-4 border-b border-gray-100 dark:border-brand-matte-border pb-3">
           <Filter size={16} className="text-brand-gold" />
           <h3 className="text-xs font-bold uppercase tracking-wider text-brand-navy dark:text-white">Filter Parameters</h3>
@@ -320,7 +320,7 @@ export const Reports: React.FC = () => {
           </div>
 
           {reportData.records.length > 0 && (
-            <div className="flex items-center gap-2">
+            <div id="tour-reports-export" className="flex items-center gap-2">
               <button
                 onClick={handleExportCSV}
                 className="inline-flex items-center gap-1 text-[11px] font-bold px-3 py-1.5 bg-white border border-gray-200 hover:bg-gray-50 text-brand-navy rounded-lg dark:bg-black dark:border-brand-matte-border dark:text-brand-gold dark:hover:bg-brand-matte-card transition-all"

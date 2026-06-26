@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
+import { useTour } from '../context/TourContext';
 import { NavLink } from 'react-router-dom';
-import Joyride, { CallBackProps, STATUS, Step } from 'react-joyride';
+import { useMarketConnectivity } from '../utils/useMarketConnectivity';
+import { useOfflineQueue } from '../utils/useOfflineQueue';
 import {
   LayoutDashboard,
   BarChart3,
@@ -10,79 +12,26 @@ import {
   Sun,
   Moon,
   Landmark,
-  HelpCircle,
   ShieldCheck,
   ChevronLeft,
   ChevronRight,
   Users,
+  HelpCircle,
+  RefreshCw,
 } from 'lucide-react';
 
 export const Shell: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, logout, theme, toggleTheme, hasPermission } = useApp();
-  const [runTour, setRunTour] = useState(false);
+  const { startTour, restartTour } = useTour();
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const [showHelpPopover, setShowHelpPopover] = useState(false);
 
-  // Joyride Guided Tour Steps
-  const tourSteps: Step[] = [
-    {
-      target: '#tour-search',
-      content: 'Start here! Search for customers by ID, Name, or Mobile Number. Select a customer to open their active workspace.',
-      placement: 'bottom',
-    },
-    {
-      target: '#tour-customer-card',
-      content: 'Once selected, the Customer Workspace displays their KYC profiles, document logs, notes, and aggregate balances.',
-      placement: 'right',
-    },
-    {
-      target: '#tour-loans-section',
-      content: 'Create new Gold/Silver/Vehicle loans with custom collateral and simple/compound interest calculations.',
-      placement: 'top',
-    },
-    {
-      target: '#tour-payment-section',
-      content: 'Post loan repayments (EMI, interest, penalties) or run principal-only reductions (Option A/B recalculations).',
-      placement: 'top',
-    },
-    {
-      target: '#tour-reports-link',
-      content: 'Inspect loan distribution statistics, filter accounts, and export results directly to PDF/Excel formats.',
-      placement: 'right',
-    },
-    {
-      target: '#tour-masters-link',
-      content: 'System Administrators can configure global parameters, edit settings, manage masters, and link RBAC roles.',
-      placement: 'right',
-    },
-  ];
-
-  const handleTourCallback = (data: CallBackProps) => {
-    const { status } = data;
-    if (([STATUS.FINISHED, STATUS.SKIPPED] as string[]).includes(status)) {
-      setRunTour(false);
-    }
-  };
+  // Live connectivity + sync status for header indicators
+  const { connectivityStatus, lastSuccessfulSync } = useMarketConnectivity();
+  const { syncStatus, pendingCount, flushQueue } = useOfflineQueue();
 
   return (
     <div className="min-h-screen w-full overflow-x-hidden flex bg-gray-50 dark:bg-black text-gray-900 dark:text-gray-100 transition-colors duration-200">
-      
-      {/* React Joyride Guided Tour */}
-      <Joyride
-        steps={tourSteps}
-        run={runTour}
-        continuous={true}
-        showSkipButton={true}
-        showProgress={true}
-        callback={handleTourCallback}
-        styles={{
-          options: {
-            primaryColor: '#C5A880',
-            backgroundColor: theme === 'dark' ? '#1C1C1E' : '#FFFFFF',
-            textColor: theme === 'dark' ? '#FFFFFF' : '#333333',
-            arrowColor: theme === 'dark' ? '#1C1C1E' : '#FFFFFF',
-          },
-        }}
-      />
 
       {/* Sidebar Navigation — fixed, never scrolls with content */}
       <aside
@@ -139,6 +88,7 @@ export const Shell: React.FC<{ children: React.ReactNode }> = ({ children }) => 
           <NavLink
             to="/"
             end
+            id="tour-dashboard-link"
             className={({ isActive }) =>
               `flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all ${
                 isCollapsed ? 'justify-center px-2' : ''
@@ -156,6 +106,7 @@ export const Shell: React.FC<{ children: React.ReactNode }> = ({ children }) => 
           {hasPermission('Customer View') && (
             <NavLink
               to="/customers"
+              id="tour-customers-link"
               className={({ isActive }) =>
                 `flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all ${
                   isCollapsed ? 'justify-center px-2' : ''
@@ -243,10 +194,61 @@ export const Shell: React.FC<{ children: React.ReactNode }> = ({ children }) => 
       />
 
       {/* Main Workspace Frame */}
-      <main className="flex-1 flex flex-col min-h-screen min-w-0 overflow-x-hidden">
+      <main className="flex-1 flex flex-col min-h-screen min-w-0 overflow-x-hidden relative">
         <header className="h-16 border-b border-gray-200 dark:border-brand-matte-border bg-white dark:bg-brand-matte-card flex items-center justify-end px-8 transition-colors duration-300 flex-shrink-0 sticky top-0 z-20">
           <div className="flex items-center gap-4 text-xs font-semibold text-gray-500 dark:text-brand-matte-text">
-            <span>Server Sync Status: <span className="text-green-500 font-bold">Online</span></span>
+
+            {/* ── Sync Status Indicator ── */}
+            <button
+              onClick={() => syncStatus === 'pending' && flushQueue()}
+              title={syncStatus === 'pending' ? `${pendingCount} offline change${pendingCount !== 1 ? 's' : ''} queued — click to sync now` : 'All changes synced'}
+              className={`flex items-center gap-1.5 text-[10px] font-bold px-2 py-1 rounded-lg transition-all ${
+                syncStatus === 'synced'
+                  ? 'text-green-500 cursor-default'
+                  : syncStatus === 'syncing'
+                  ? 'text-blue-400 cursor-default'
+                  : 'text-amber-400 hover:bg-amber-400/10 cursor-pointer'
+              }`}
+            >
+              {syncStatus === 'synced' && (
+                <><span className="w-1.5 h-1.5 rounded-full bg-green-500 flex-shrink-0" />Synced</>
+              )}
+              {syncStatus === 'pending' && (
+                <><span className="w-1.5 h-1.5 rounded-full bg-amber-400 flex-shrink-0" />Pending ({pendingCount})</>
+              )}
+              {syncStatus === 'syncing' && (
+                <><RefreshCw size={10} className="animate-spin flex-shrink-0" />Syncing...</>
+              )}
+            </button>
+
+            <div className="h-4 w-px bg-gray-200 dark:bg-brand-matte-border" />
+
+            {/* ── Market Connectivity Indicator ── */}
+            {connectivityStatus === 'live' && (
+              <span className="flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse flex-shrink-0" />
+                <span>LMS Connected <span className="text-green-500">· Live Rates</span></span>
+              </span>
+            )}
+            {connectivityStatus === 'cached' && (
+              <span className="flex items-center gap-1.5" title={`Last live sync: ${lastSuccessfulSync?.toLocaleString() || 'unknown'}`}>
+                <span className="w-2 h-2 rounded-full bg-amber-400 flex-shrink-0" />
+                <span>LMS Connected <span className="text-amber-400">· Cached Rates</span></span>
+              </span>
+            )}
+            {connectivityStatus === 'backend_offline' && (
+              <span className="flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse flex-shrink-0" />
+                <span className="text-red-500">Backend Offline</span>
+              </span>
+            )}
+            {connectivityStatus === 'loading' && (
+              <span className="flex items-center gap-1.5">
+                <RefreshCw size={10} className="animate-spin text-gray-400 flex-shrink-0" />
+                <span>Connecting...</span>
+              </span>
+            )}
+
             <div className="h-4 w-px bg-gray-200 dark:bg-brand-matte-border" />
             <span>Timezone: <span className="font-bold">IST</span></span>
           </div>
@@ -258,14 +260,47 @@ export const Shell: React.FC<{ children: React.ReactNode }> = ({ children }) => 
         </div>
       </main>
 
-      {/* Floating Guided Tour Button */}
-      <button
-        onClick={() => setRunTour(true)}
-        className="fixed bottom-6 right-6 p-4 rounded-full bg-gradient-to-r from-brand-gold-dark to-brand-gold hover:from-brand-gold hover:to-brand-gold-light text-brand-navy shadow-2xl transition-all transform hover:-translate-y-1 active:translate-y-0 z-50 flex items-center justify-center border-2 border-white dark:border-brand-matte-card"
-        title="Start Guided Tour"
-      >
-        <HelpCircle size={24} />
-      </button>
+      {/* Global Help Floating Button & Popover */}
+      <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end">
+        {showHelpPopover && (
+          <div className="mb-3 bg-[#121212] border border-[#C5A880] rounded-xl p-3 shadow-[0_10px_30px_rgba(0,0,0,0.8),0_0_15px_rgba(197,168,128,0.1)] text-white w-52 flex flex-col gap-1.5 animate-fade-in z-50">
+            <div className="text-[9px] uppercase font-bold text-[#C5A880] tracking-widest pb-1.5 border-b border-[#C5A880]/20 mb-1">
+              LMS Help Desk
+            </div>
+            <button
+              onClick={() => {
+                startTour();
+                setShowHelpPopover(false);
+              }}
+              className="w-full text-left py-1.5 px-2 hover:bg-[#C5A880]/10 text-[11px] font-semibold rounded-lg text-gray-200 hover:text-white transition-all"
+            >
+              🚀 Start/Resume Tour
+            </button>
+            <button
+              onClick={() => {
+                restartTour();
+                setShowHelpPopover(false);
+              }}
+              className="w-full text-left py-1.5 px-2 hover:bg-[#C5A880]/10 text-[11px] font-semibold rounded-lg text-gray-200 hover:text-white transition-all"
+            >
+              🔄 Restart Walkthrough
+            </button>
+            <button
+              onClick={() => setShowHelpPopover(false)}
+              className="w-full text-center py-1 bg-brand-navy border border-gray-700 hover:border-gray-500 text-[9px] font-bold rounded-lg text-gray-400 hover:text-white transition-all mt-1"
+            >
+              Close
+            </button>
+          </div>
+        )}
+        <button
+          onClick={() => setShowHelpPopover(!showHelpPopover)}
+          className="w-14 h-14 bg-[#C5A880] text-[#060F24] shadow-[0_6px_24px_rgba(197,168,128,0.4),0_0_10px_rgba(197,168,128,0.2)] border border-[#C5A880]/30 hover:bg-[#DCC39E] hover:scale-105 active:scale-95 rounded-full flex items-center justify-center transition-all cursor-pointer"
+          title="LMS Interactive Help & Onboarding Tour"
+        >
+          <HelpCircle size={28} />
+        </button>
+      </div>
     </div>
   );
 };

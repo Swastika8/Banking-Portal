@@ -60,6 +60,15 @@ export class MarketRateService {
     console.log(`[MarketRate] Syncing ${assetUpper} | apiEndpoint: ${config?.apiEndpoint}`);
     console.log(`[MarketRate] GOLDAPI_KEY present: ${!!process.env.GOLDAPI_KEY}`);
 
+    // ── Admin override guard ─────────────────────────────────────
+    // If the rate was set manually by an Admin, skip API sync entirely.
+    // The source must be explicitly changed back to 'API' by an authorised user
+    // before automatic sync resumes for this asset.
+    if (config?.source === 'MANUAL') {
+      console.log(`[MarketRate] ⚙️ Admin override active for ${assetUpper} (source=MANUAL). Skipping API sync.`);
+      return config;
+    }
+
     if (config?.apiEndpoint) {
       try {
         const response = await axios.get(config.apiEndpoint, {
@@ -67,6 +76,10 @@ export class MarketRateService {
             'x-access-token': process.env.GOLDAPI_KEY, // ✅ FIXED: was 'x=access-token'
             'Content-Type': 'application/json',
           },
+          // ── Timeout guard ──────────────────────────────────────
+          // Prevents a hung external API call from blocking the hourly cron
+          // indefinitely. Falls back to DB-cached rate after 8 seconds.
+          timeout: 8000,
         });
 
         console.log(`[MarketRate] GoldAPI raw response for ${assetUpper}:`, JSON.stringify(response.data));
@@ -82,7 +95,11 @@ export class MarketRateService {
           console.warn(`[MarketRate] ⚠️ Could not parse gram rate for ${assetUpper}. Using cached: ₹${rate}`);
         }
       } catch (error) {
-        console.error(`[MarketRate] ❌ API Sync failed for ${assetUpper}:`, error instanceof Error ? error.message : error);
+        const isTimeout = (error as any)?.code === 'ECONNABORTED';
+        console.error(
+          `[MarketRate] ❌ API Sync failed for ${assetUpper}${ isTimeout ? ' (timeout)' : ''}:`,
+          error instanceof Error ? error.message : error
+        );
         console.log(`[MarketRate] Falling back to cached rate: ₹${rate}`);
       }
     } else {

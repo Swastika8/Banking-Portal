@@ -11,7 +11,9 @@ export class RiskService {
       const setting = await prisma.systemSetting.findUnique({
         where: { key },
       });
-      return setting ? parseFloat(setting.value) : fallback;
+      if (!setting) return fallback;
+      const val = parseFloat(setting.value);
+      return isNaN(val) ? fallback : val;
     } catch {
       return fallback;
     }

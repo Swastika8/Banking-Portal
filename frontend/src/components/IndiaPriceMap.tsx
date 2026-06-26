@@ -1,206 +1,277 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useMemo } from 'react';
+import { ComposableMap, Geographies, Geography, Marker } from 'react-simple-maps';
+import { geoMercator } from 'd3-geo';
+import { feature } from 'topojson-client';
+import worldAtlas from 'world-atlas/countries-50m.json';
 
+/* ─── Tax constants ────────────────────────────────────────────── */
+const CUSTOMS_DUTY = 0.15;
+const GST_RATE     = 0.03;
+
+/* ─── City data — real lon/lat, no pixel tracing ─────────────────
+   Placement now comes from actual coordinates run through the same
+   Mercator projection that draws the outline, so dots always land
+   correctly regardless of how the outline geometry is sourced.
+   ─────────────────────────────────────────────────────────────── */
 interface City {
   name: string;
-  x: number; // SVG coordinate
-  y: number;
-  premiumMultiplier: number; // local price variation factor
+  lon: number;
+  lat: number;
+  premiumMultiplier: number;
 }
 
-// Major Indian gold/silver pricing cities with SVG coords mapped to India outline
 const CITIES: City[] = [
-  { name: 'Delhi',     x: 198, y: 108, premiumMultiplier: 1.0000 },
-  { name: 'Mumbai',    x: 148, y: 218, premiumMultiplier: 1.0012 },
-  { name: 'Kolkata',   x: 298, y: 178, premiumMultiplier: 0.9988 },
-  { name: 'Chennai',   x: 218, y: 318, premiumMultiplier: 1.0008 },
-  { name: 'Bengaluru', x: 198, y: 308, premiumMultiplier: 1.0015 },
-  { name: 'Hyderabad', x: 208, y: 268, premiumMultiplier: 1.0005 },
-  { name: 'Ahmedabad', x: 138, y: 178, premiumMultiplier: 0.9995 },
-  { name: 'Jaipur',    x: 178, y: 138, premiumMultiplier: 1.0003 },
-  { name: 'Lucknow',   x: 228, y: 128, premiumMultiplier: 0.9992 },
-  { name: 'Pune',      x: 158, y: 238, premiumMultiplier: 1.0010 },
+  { name: 'Delhi',       lon: 77.1025, lat: 28.7041, premiumMultiplier: 1.0000 },
+  { name: 'Mumbai',      lon: 72.8777, lat: 19.0760, premiumMultiplier: 1.0012 },
+  { name: 'Kolkata',     lon: 88.3639, lat: 22.5726, premiumMultiplier: 0.9988 },
+  { name: 'Chennai',     lon: 80.2707, lat: 13.0827, premiumMultiplier: 1.0008 },
+  { name: 'Bengaluru',   lon: 77.5946, lat: 12.9716, premiumMultiplier: 1.0015 },
+  { name: 'Hyderabad',   lon: 78.4867, lat: 17.3850, premiumMultiplier: 1.0005 },
+  { name: 'Ahmedabad',   lon: 72.5714, lat: 23.0225, premiumMultiplier: 0.9995 },
+  { name: 'Jaipur',      lon: 75.7873, lat: 26.9124, premiumMultiplier: 1.0003 },
+  { name: 'Lucknow',     lon: 80.9462, lat: 26.8467, premiumMultiplier: 0.9992 },
+  { name: 'Pune',        lon: 73.8567, lat: 18.5204, premiumMultiplier: 1.0010 },
+  { name: 'Kochi',       lon: 76.2673, lat: 9.9312,  premiumMultiplier: 1.0018 },
+  { name: 'Bhubaneswar', lon: 85.8245, lat: 20.2961, premiumMultiplier: 0.9996 },
 ];
 
+/* Match the old viewBox so all tooltip clamp math below stays identical */
+const VB_W = 400;
+const VB_H = 500;
+const MAP_PADDING = 20;
+
+/* ─── Props ──────────────────────────────────────────────────── */
 interface Props {
-  rate: number;       // current rate per gram from selectedMarketRate
-  asset: string;      // GOLD, SILVER etc
-  theme: string;      // 'dark' | 'light'
+  rate: number;   // raw API rate per gram (pre-tax)
+  asset: string;  // 'GOLD' | 'SILVER' | …
+  theme: string;  // 'dark' | 'light'
 }
 
 export const IndiaPriceMap: React.FC<Props> = ({ rate, asset, theme }) => {
-  const [hoveredCity, setHoveredCity] = useState<string | null>(null);
-  const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0 });
+  const [hovered, setHovered] = useState<string | null>(null);
+  const [mouseXY, setMouseXY] = useState({ x: 0, y: 0 });
+  const containerRef          = useRef<HTMLDivElement>(null);
 
   const isDark = theme === 'dark';
 
-  // Color tokens based on theme
-  const mapStroke    = isDark ? '#C5A880' : '#1e40af';   // gold | blue
-  const mapFill      = isDark ? 'rgba(197,168,128,0.04)' : 'rgba(30,64,175,0.04)';
-  const dotColor     = isDark ? '#C5A880' : '#1e40af';
-  const dotPulse     = isDark ? 'rgba(197,168,128,0.25)' : 'rgba(30,64,175,0.20)';
-  const tooltipBg    = isDark ? '#1C1C1E' : '#ffffff';
-  const tooltipText  = isDark ? '#ffffff' : '#0f172a';
-  const tooltipBorder= isDark ? '#C5A880' : '#1e40af';
+  /* Indian retail rate (with customs + GST) */
+  const isRetailMetal = ['GOLD', 'SILVER'].includes(asset.toUpperCase());
+  const retailBase    = isRetailMetal
+    ? rate * (1 + CUSTOMS_DUTY) * (1 + GST_RATE)
+    : rate;
 
-  const formatRate = (r: number) =>
-    '₹' + r.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  /* ── Colour tokens ─────────────────────────────────────────── */
+  const outline    = isDark ? '#C5A880' : '#1e40af';
+  const fillColor  = isDark ? 'rgba(197,168,128,0.07)' : 'rgba(30,64,175,0.06)';
+  const dotStroke  = isDark ? '#C5A880' : '#1e40af';
+  const dotFill    = isDark ? 'rgba(197,168,128,0.55)' : 'rgba(30,64,175,0.50)';
+  const pulseColor = isDark ? 'rgba(197,168,128,0.22)' : 'rgba(30,64,175,0.18)';
+  const ttBg       = isDark ? 'rgba(14,14,16,0.97)' : 'rgba(255,255,255,0.97)';
+  const ttBorder   = isDark ? '#C5A880' : '#1e40af';
+  const ttTitle    = isDark ? '#ffffff' : '#0f172a';
+  const ttPrice    = isDark ? '#C5A880' : '#1e40af';
+  const ttSub      = isDark ? 'rgba(255,255,255,0.38)' : 'rgba(15,23,42,0.40)';
 
-  const handleMouseEnter = (city: City, e: React.MouseEvent<SVGCircleElement>) => {
-    setHoveredCity(city.name);
-    const rect = (e.currentTarget.closest('svg') as SVGSVGElement).getBoundingClientRect();
-    setTooltipPos({
-      x: e.clientX - rect.left,
-      y: e.clientY - rect.top - 36,
-    });
+  /* ── Format ₹ ──────────────────────────────────────────────── */
+  const fmt = (v: number) =>
+    '\u20B9' + Math.round(v).toLocaleString('en-IN');
+
+  /* ── India outline: real TopoJSON boundary, decoded once ────── */
+  const indiaFeature = useMemo(() => {
+    const atlas = worldAtlas as any;
+    const geo   = feature(atlas, atlas.objects.countries) as any;
+    return geo.features.find((f: any) => f.properties?.name === 'India');
+  }, []);
+
+  /* Fit India tightly into the same 400x500 box the old hand-traced
+     path used to occupy — fitExtent does the scale/center math so
+     nothing here needs manual tuning if the data source changes. */
+  const projection = useMemo(() => {
+    const proj = geoMercator();
+    if (indiaFeature) {
+      proj.fitExtent(
+        [[MAP_PADDING, MAP_PADDING], [VB_W - MAP_PADDING, VB_H - MAP_PADDING]],
+        indiaFeature
+      );
+    }
+    return proj;
+  }, [indiaFeature]);
+
+  /* ── Mouse tracking ───────────────────────────────────────────
+     ComposableMap's <svg> keeps viewBox="0 0 400 500" with default
+     preserveAspectRatio (xMidYMid meet), so the rendered map gets
+     letterboxed inside the container. We replicate that math here
+     to convert real cursor position back into the same 400x500
+     coordinate space the tooltip geometry below is written in. */
+  const track = (e: React.MouseEvent<HTMLDivElement>) => {
+    const el = containerRef.current;
+    if (!el) return;
+    const rect   = el.getBoundingClientRect();
+    const scale  = Math.min(rect.width / VB_W, rect.height / VB_H);
+    const offX   = (rect.width - VB_W * scale) / 2;
+    const offY   = (rect.height - VB_H * scale) / 2;
+    const x = (e.clientX - rect.left - offX) / scale;
+    const y = (e.clientY - rect.top - offY) / scale;
+    setMouseXY({ x, y });
   };
 
-  const handleMouseMove = (e: React.MouseEvent<SVGCircleElement>) => {
-    const rect = (e.currentTarget.closest('svg') as SVGSVGElement).getBoundingClientRect();
-    setTooltipPos({
-      x: e.clientX - rect.left,
-      y: e.clientY - rect.top - 36,
-    });
-  };
+  /* Tooltip dimensions */
+  const TW = 190, TH = 72, TR = 10;
+
+  /* Clamp tooltip inside viewBox 0 0 400 500 — unchanged from before */
+  const ttX = Math.min(Math.max(mouseXY.x - TW / 2, 4), VB_W - 4 - TW);
+  const ttY = mouseXY.y - TH - 18 < 4 ? mouseXY.y + 14 : mouseXY.y - TH - 18;
 
   return (
-    <div className="relative w-full" style={{ height: '192px' }}>
-      <svg
-        viewBox="0 60 370 340"
-        width="100%"
-        height="100%"
-        style={{ overflow: 'visible' }}
+    <div
+      ref={containerRef}
+      className="relative w-full"
+      onMouseMove={track}
+    >
+      <ComposableMap
+        width={VB_W}
+        height={VB_H}
+        projection={projection}
+        style={{ width: '100%', height: '100%', overflow: 'visible' }}
       >
         <defs>
+          <filter id="city-glow" x="-60%" y="-60%" width="220%" height="220%">
+            <feGaussianBlur stdDeviation="3.5" result="blur" />
+            <feMerge>
+              <feMergeNode in="blur" />
+              <feMergeNode in="SourceGraphic" />
+            </feMerge>
+          </filter>
+
           <style>{`
-            @keyframes pulse-ring {
-              0%   { r: 6px;  opacity: 0.8; }
-              100% { r: 14px; opacity: 0;   }
+            @keyframes imap-pulse {
+              0%   { r: 7;  opacity: 0.7 }
+              80%  { r: 20; opacity: 0   }
+              100% { r: 20; opacity: 0   }
             }
-            .city-pulse { animation: pulse-ring 2s ease-out infinite; }
-            .city-pulse-2 { animation: pulse-ring 2s ease-out infinite 0.6s; }
-            .city-pulse-3 { animation: pulse-ring 2s ease-out infinite 1.2s; }
+            .imp0 { animation: imap-pulse 2.6s ease-out infinite 0.0s }
+            .imp1 { animation: imap-pulse 2.6s ease-out infinite 0.4s }
+            .imp2 { animation: imap-pulse 2.6s ease-out infinite 0.8s }
+            .imp3 { animation: imap-pulse 2.6s ease-out infinite 1.2s }
+            .imp4 { animation: imap-pulse 2.6s ease-out infinite 1.6s }
+            .imp5 { animation: imap-pulse 2.6s ease-out infinite 2.0s }
           `}</style>
         </defs>
 
-        {/* ── India SVG outline path (simplified, accurate outline) ── */}
-        <path
-          d="
-            M 178 65
-            L 192 62 L 210 65 L 228 62 L 242 70
-            L 255 68 L 268 75 L 275 85 L 268 95
-            L 278 105 L 285 118 L 280 128
-            L 292 135 L 305 145 L 310 158
-            L 318 165 L 315 178 L 308 185
-            L 312 195 L 305 205 L 295 208
-            L 288 218 L 278 225 L 268 228
-            L 260 238 L 250 248 L 242 258
-            L 238 268 L 232 278 L 228 290
-            L 222 302 L 218 315 L 222 325
-            L 228 335 L 232 345 L 228 355
-            L 222 362 L 215 368 L 208 362
-            L 202 352 L 198 342 L 192 332
-            L 185 320 L 180 308 L 175 295
-            L 168 282 L 162 268 L 155 255
-            L 148 242 L 142 228 L 135 218
-            L 128 205 L 122 192 L 118 178
-            L 112 165 L 108 152 L 112 140
-            L 118 130 L 122 118 L 128 108
-            L 135 98 L 142 90 L 150 82
-            L 158 75 L 168 68 Z
+        {/* ── India outline (actual boundary data, not traced) ── */}
+        <Geographies geography={worldAtlas}>
+          {({ geographies }: { geographies: any[] }) =>
+            geographies
+              .filter((geo: any) => geo.properties?.name === 'India')
+              .map((geo: any) => (
+                <Geography
+                  key={geo.rsmKey}
+                  geography={geo}
+                  fill={fillColor}
+                  stroke={outline}
+                  strokeWidth={1.8}
+                  style={{
+                    default: { outline: 'none' },
+                    hover:   { outline: 'none', fill: fillColor },
+                    pressed: { outline: 'none', fill: fillColor },
+                  }}
+                />
+              ))
+          }
+        </Geographies>
 
-            M 215 368 L 218 375 L 222 382
-            L 218 388 L 212 392 L 205 388
-            L 200 382 L 202 375 L 208 370 Z
-          "
-          fill={mapFill}
-          stroke={mapStroke}
-          strokeWidth="1.5"
-          strokeLinejoin="round"
-        />
-
-        {/* ── City dots with pulsing rings ── */}
+        {/* ── City dots ── */}
         {CITIES.map((city, i) => {
-            const isHovered = hoveredCity === city.name;
-            const pulseClass = i % 3 === 0 ? 'city-pulse' : i % 3 === 1 ? 'city-pulse-2' : 'city-pulse-3';
-
-            return (
-                <g key={city.name}>
-                <circle
-                    cx={city.x}
-                    cy={city.y}
-                    r="6"
-                    fill={dotPulse}
-                    stroke="none"
-                    className={isHovered ? undefined : pulseClass}
-                />
-                <circle
-                    cx={city.x}
-                    cy={city.y}
-                    r={isHovered ? 5 : 3.5}
-                    fill={isHovered ? dotColor : dotPulse.replace('0.25', '0.7').replace('0.20', '0.6')}
-                    stroke={dotColor}
-                    strokeWidth={isHovered ? 1.5 : 1}
-                    style={{ cursor: 'pointer', transition: 'r 0.15s ease' }}
-                    onMouseEnter={(e) => handleMouseEnter(city, e)}
-                    onMouseMove={handleMouseMove}
-                    onMouseLeave={() => setHoveredCity(null)}
-                />
-                </g>
-            );
-            })}
+          const isH = hovered === city.name;
+          return (
+            <Marker
+              key={city.name}
+              coordinates={[city.lon, city.lat] as [number, number]}
+              onMouseEnter={() => setHovered(city.name)}
+              onMouseLeave={() => setHovered(null)}
+              style={{ default: { cursor: 'pointer' } }}
+            >
+              <circle
+                r="7"
+                fill={pulseColor}
+                stroke="none"
+                className={`imp${i % 6}`}
+              />
+              <circle
+                r={isH ? 7 : 4.5}
+                fill={isH ? dotStroke : dotFill}
+                stroke={dotStroke}
+                strokeWidth={isH ? 2 : 1.2}
+                filter={isH ? 'url(#city-glow)' : undefined}
+                style={{ transition: 'r 0.15s ease' }}
+              />
+            </Marker>
+          );
+        })}
 
         {/* ── Tooltip ── */}
-        {hoveredCity && (() => {
-          const city = CITIES.find(c => c.name === hoveredCity)!;
-          const cityRate = rate * city.premiumMultiplier;
-          const label = `${city.name}: ${formatRate(cityRate)}/g`;
-          const tw = label.length * 6.5 + 16;
-          const tx = Math.min(tooltipPos.x - tw / 2, 330);
-          const ty = tooltipPos.y;
-
+        {hovered && (() => {
+          const city     = CITIES.find(c => c.name === hovered)!;
+          const cityRate = retailBase * city.premiumMultiplier;
           return (
-            <g>
+            <g style={{ pointerEvents: 'none' }}>
               <rect
-                x={tx}
-                y={ty}
-                width={tw}
-                height={26}
-                rx={5}
-                fill={tooltipBg}
-                stroke={tooltipBorder}
-                strokeWidth="1"
-                style={{ filter: 'drop-shadow(0 2px 6px rgba(0,0,0,0.3))' }}
+                x={ttX + 2} y={ttY + 2}
+                width={TW} height={TH} rx={TR}
+                fill="rgba(0,0,0,0.25)"
+              />
+              <rect
+                x={ttX} y={ttY}
+                width={TW} height={TH} rx={TR}
+                fill={ttBg}
+                stroke={ttBorder}
+                strokeWidth="1.4"
               />
               <text
-                x={tx + tw / 2}
-                y={ty + 16}
+                x={ttX + TW / 2} y={ttY + 24}
                 textAnchor="middle"
-                fontSize="10"
-                fontWeight="600"
-                fill={tooltipText}
-                fontFamily="system-ui, sans-serif"
+                fontSize="14" fontWeight="700"
+                fill={ttTitle}
+                fontFamily="system-ui,-apple-system,sans-serif"
               >
-                {label}
+                {city.name}
+              </text>
+              <text
+                x={ttX + TW / 2} y={ttY + 46}
+                textAnchor="middle"
+                fontSize="15" fontWeight="700"
+                fill={ttPrice}
+                fontFamily="'Courier New',monospace"
+              >
+                {fmt(cityRate)}
+                <tspan fontSize="11" fontWeight="400">/g</tspan>
+              </text>
+              <text
+                x={ttX + TW / 2} y={ttY + 62}
+                textAnchor="middle"
+                fontSize="9.5" fontWeight="400"
+                fill={ttSub}
+                fontFamily="system-ui,-apple-system,sans-serif"
+              >
+                incl. 15% customs + 3% GST
               </text>
             </g>
           );
         })()}
 
-        {/* ── Asset label watermark ── */}
+        {/* ── Watermark ── */}
         <text
-          x="215"
-          y="220"
+          x="200" y="350"
           textAnchor="middle"
-          fontSize="11"
-          fontWeight="700"
-          fill={mapStroke}
-          opacity="0.12"
-          fontFamily="system-ui, sans-serif"
-          letterSpacing="4"
+          fontSize="30" fontWeight="800"
+          fill={outline}
+          opacity="0.05"
+          fontFamily="system-ui,sans-serif"
+          letterSpacing="10"
         >
           {asset}
         </text>
-      </svg>
+      </ComposableMap>
     </div>
   );
 };

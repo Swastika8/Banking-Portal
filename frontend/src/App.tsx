@@ -1,6 +1,7 @@
 import React from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { AppProvider, useApp } from './context/AppContext';
+import { TourProvider } from './context/TourContext';
 import { Login } from './pages/Login';
 import { Register } from './pages/Register';
 import { ForgotReset } from './pages/ForgotReset';
@@ -89,7 +90,9 @@ const AppContent: React.FC = () => {
 function App() {
   return (
     <AppProvider>
-      <AppContent />
+      <TourProvider>
+        <AppContent />
+      </TourProvider>
     </AppProvider>
   );
 }

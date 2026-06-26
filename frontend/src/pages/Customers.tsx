@@ -1,7 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import api from '../utils/api';
 import { useNavigate } from 'react-router-dom';
-import { Search, Phone, Mail, MapPin, Briefcase, ChevronRight, Users, AlertTriangle, CheckCircle2, Clock } from 'lucide-react';
+import { 
+Search, 
+Phone, 
+Mail, 
+MapPin, 
+Briefcase, 
+ChevronRight, 
+Users, 
+} from 'lucide-react';
+
 
 export const Customers: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
@@ -39,6 +48,7 @@ export const Customers: React.FC = () => {
 
   return (
     <div className="space-y-6">
+      
       {/* Page Header */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
@@ -53,7 +63,7 @@ export const Customers: React.FC = () => {
       </div>
 
       {/* Search Bar */}
-      <div className="relative w-full max-w-lg">
+      <div id="tour-customers-search" className="relative w-full max-w-lg">
         <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-gray-400">
           <Search size={16} />
         </span>
@@ -67,7 +77,7 @@ export const Customers: React.FC = () => {
       </div>
 
       {/* Table */}
-      <div className="bg-white dark:bg-brand-matte-card border border-gray-200 dark:border-brand-matte-border rounded-2xl shadow-sm overflow-hidden">
+      <div id="tour-customers-table" className="bg-white dark:bg-brand-matte-card border border-gray-200 dark:border-brand-matte-border rounded-2xl shadow-sm overflow-hidden">
         {loading ? (
           <div className="p-16 text-center text-gray-400 dark:text-brand-matte-text text-sm">
             Loading customers...

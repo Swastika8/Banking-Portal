@@ -1,8 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import api from '../utils/api';
+import { toast } from 'react-hot-toast';
 import TransactionList from '../components/transactions/TransactionList';
 import { useApp } from '../context/AppContext';
+import { useTour } from '../context/TourContext';
 import { formatCurrency } from '../utils/currency';
+import { useMarketConnectivity } from '../utils/useMarketConnectivity';
 import { AreaChart, Area, Tooltip, ResponsiveContainer } from 'recharts';
 import { useLocation } from 'react-router-dom';
 import { IndiaPriceMap } from '../components/IndiaPriceMap';
@@ -91,6 +94,48 @@ export const Dashboard: React.FC = () => {
     startDate: '',
   });
 
+  // Centralized Tour Sync
+  const {
+    setDashboardHasWorkspace,
+    triggerSelectFirstCustomer,
+    setTriggerSelectFirstCustomer,
+    runTour,
+    stepIndex,
+    steps,
+  } = useTour();
+
+  useEffect(() => {
+    setDashboardHasWorkspace(workspace !== null);
+  }, [workspace, setDashboardHasWorkspace]);
+
+  // Sync workspace tab selection with tour step target selector
+  useEffect(() => {
+    if (runTour && workspace && steps[stepIndex]) {
+      const target = steps[stepIndex].target;
+      if (target === '#tour-loans-section' || target === '#tour-pending-approvals') {
+        setActiveTab('loans');
+      } else if (target === '#tour-payments-tab') {
+        setActiveTab('payments');
+      } else if (target === '#tour-timeline-tab') {
+        setActiveTab('timeline');
+      } else if (target === '#tour-notes-tab') {
+        setActiveTab('notes');
+      } else if (target === '#tour-documents-tab') {
+        setActiveTab('documents');
+      }
+    }
+  }, [runTour, stepIndex, steps, workspace]);
+
+  // Handle tour first customer auto-selection trigger
+  useEffect(() => {
+    if (triggerSelectFirstCustomer) {
+      if (!selectedCustomerId && customersList.length > 0) {
+        setSelectedCustomerId(customersList[0].id);
+      }
+      setTriggerSelectFirstCustomer(false);
+    }
+  }, [triggerSelectFirstCustomer, customersList, selectedCustomerId, setTriggerSelectFirstCustomer]);
+
   // Form states
   const [newCustomerForm, setNewCustomerForm] = useState({
     name: '',
@@ -145,8 +190,14 @@ export const Dashboard: React.FC = () => {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Enhancement state
-  const [marketRates, setMarketRates] = useState<any[]>([]);
+  // Enhancement state — market rates now managed by useMarketConnectivity hook
+  const {
+    marketRates,
+    connectivityStatus: marketConnectivityStatus,
+    lastSuccessfulSync: marketLastSync,
+    refresh: refreshMarketRates,
+    isRefreshing: isMarketRefreshing,
+  } = useMarketConnectivity();
   const [marketWatchAsset, setMarketWatchAsset] = useState<string>('GOLD');
   const [showMapView, setShowMapView] = useState(false);
   const [editingAssetRate, setEditingAssetRate] = useState<string | null>(null);
@@ -165,12 +216,11 @@ export const Dashboard: React.FC = () => {
     interestType: 'SIMPLE',
   });
 
-  // Initial Fetch
+  // Initial Fetch — market rates are managed by useMarketConnectivity hook
   useEffect(() => {
     fetchCustomers();
     fetchMasters();
     fetchGlobalStats();
-    fetchMarketRates();
   }, []);
 
   const location = useLocation();
@@ -228,33 +278,17 @@ export const Dashboard: React.FC = () => {
       .catch(() => setMarketHistory([]));
   }, [marketWatchAsset]);
 
-  const fetchMarketRates = async () => {
-    try {
-      const res = await api.get('/market-rates');
-      setMarketRates(res.data);
-    } catch (err) {
-      console.error('Error fetching market rates:', err);
-    }
-  };
+  // fetchMarketRates removed — replaced by useMarketConnectivity hook
 
   const handleUpdateManualRate = async (asset: string, rate: number) => {
     try {
       await api.post('/market-rates/manual', { asset, rate });
       setEditingAssetRate(null);
-      fetchMarketRates();
+      await refreshMarketRates();
       fetchGlobalStats();
+      toast.success(`Market rate for ${asset} updated manually.`);
     } catch (err: any) {
-      alert(err.response?.data?.message || 'Failed to update rate manually.');
-    }
-  };
-
-  const handleTriggerSync = async (asset?: string) => {
-    try {
-      await api.post('/market-rates/sync', asset ? { asset } : {});
-      fetchMarketRates();
-      fetchGlobalStats();
-    } catch (err: any) {
-      alert(err.response?.data?.message || 'Failed to trigger sync.');
+      toast.error(err.response?.data?.message || 'Failed to update rate manually.');
     }
   };
 
@@ -797,7 +831,7 @@ export const Dashboard: React.FC = () => {
     if (!window.confirm(`Generate 60 days of realistic demo history for ${marketWatchAsset}?`)) return;
     try {
       const res = await api.post('/market-rates/generate-history', { asset: marketWatchAsset, days: 60 });
-      alert(res.data.message);
+      toast.success(res.data.message);
       // Refresh the chart
       const histRes = await api.get(`/market-rates/history/${marketWatchAsset}`);
       const data = histRes.data.map((entry: any) => ({
@@ -806,8 +840,20 @@ export const Dashboard: React.FC = () => {
       }));
       setMarketHistory(data);
     } catch (err: any) {
-      alert(err.response?.data?.message || 'Failed to generate history.');
+      toast.error(err.response?.data?.message || 'Failed to generate history.');
     }
+  };
+
+  /** Format a Date as a relative human-readable string for the connectivity badge */
+  const formatRelativeTime = (date: Date | null): string => {
+    if (!date) return 'unknown';
+    const diffMs = Date.now() - date.getTime();
+    const diffMin = Math.floor(diffMs / 60_000);
+    if (diffMin < 1) return 'just now';
+    if (diffMin < 60) return `${diffMin}m ago`;
+    const diffHr = Math.floor(diffMin / 60);
+    if (diffHr < 24) return `${diffHr}h ago`;
+    return date.toLocaleDateString();
   };
 
   // Helper to calculate previews for the Add Loan form
@@ -903,7 +949,6 @@ export const Dashboard: React.FC = () => {
 
   return (
     <div className="space-y-6">
-
       {/* Search Header Row */}
       <div className="flex flex-col sm:flex-row gap-4 items-center justify-between">
         <div id="tour-search" className="relative w-full max-w-lg">
@@ -928,6 +973,7 @@ export const Dashboard: React.FC = () => {
           </button>
           {hasPermission('Customer Create') && (
             <button
+              id="tour-add-customer"
               onClick={() => setShowAddCustomer(true)}
               className="flex-1 sm:flex-initial flex items-center justify-center gap-2 px-5 py-3 bg-gradient-to-r from-brand-gold-dark to-brand-gold hover:from-brand-gold hover:to-brand-gold-light text-brand-navy font-bold rounded-xl shadow-lg transition-all"
             >
@@ -952,7 +998,7 @@ export const Dashboard: React.FC = () => {
         <div className="space-y-6">
           {/* Quick Stats Grid */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-5">
-            <div className="bg-white dark:bg-brand-matte-card border border-gray-200 dark:border-brand-matte-border p-5 rounded-2xl shadow-sm flex flex-col justify-between">
+            <div id="tour-stats-active-loans" className="bg-white dark:bg-brand-matte-card border border-gray-200 dark:border-brand-matte-border p-5 rounded-2xl shadow-sm flex flex-col justify-between">
               <span className="text-gray-400 dark:text-brand-matte-text text-[10px] uppercase font-bold tracking-wider">Active Approved Loans</span>
               <div className="flex items-center justify-between mt-2">
                 <span className="text-xl font-bold font-display text-brand-navy dark:text-white">{globalStats.activeLoansCount}</span>
@@ -960,7 +1006,7 @@ export const Dashboard: React.FC = () => {
               </div>
             </div>
 
-            <div className="bg-white dark:bg-brand-matte-card border border-gray-200 dark:border-brand-matte-border p-5 rounded-2xl shadow-sm flex flex-col justify-between">
+            <div id="tour-stats-outstanding-principal" className="bg-white dark:bg-brand-matte-card border border-gray-200 dark:border-brand-matte-border p-5 rounded-2xl shadow-sm flex flex-col justify-between">
               <span className="text-gray-400 dark:text-brand-matte-text text-[10px] uppercase font-bold tracking-wider">Outstanding Principal</span>
               <div className="flex items-center justify-between mt-2">
                 <span className="text-xl font-bold font-display text-brand-navy dark:text-white">{formatCurrency(globalStats.outstandingPrincipal)}</span>
@@ -968,7 +1014,7 @@ export const Dashboard: React.FC = () => {
               </div>
             </div>
 
-            <div className="bg-white dark:bg-brand-matte-card border border-gray-200 dark:border-brand-matte-border p-5 rounded-2xl shadow-sm flex flex-col justify-between">
+            <div id="tour-stats-interest-due" className="bg-white dark:bg-brand-matte-card border border-gray-200 dark:border-brand-matte-border p-5 rounded-2xl shadow-sm flex flex-col justify-between">
               <span className="text-gray-400 dark:text-brand-matte-text text-[10px] uppercase font-bold tracking-wider">Interest Accrued Due</span>
               <div className="flex items-center justify-between mt-2">
                 <span className="text-xl font-bold font-display text-brand-navy dark:text-white">{formatCurrency(globalStats.outstandingInterest)}</span>
@@ -976,7 +1022,7 @@ export const Dashboard: React.FC = () => {
               </div>
             </div>
 
-            <div className="bg-white dark:bg-brand-matte-card border border-gray-200 dark:border-brand-matte-border p-5 rounded-2xl shadow-sm flex flex-col justify-between">
+            <div id="tour-stats-pending-approvals" className="bg-white dark:bg-brand-matte-card border border-gray-200 dark:border-brand-matte-border p-5 rounded-2xl shadow-sm flex flex-col justify-between">
               <span className="text-gray-400 dark:text-brand-matte-text text-[10px] uppercase font-bold tracking-wider">Overdue Accounts</span>
               <div className="flex items-center justify-between mt-2">
                 <span className="text-xl font-bold font-display text-red-500">{(globalStats as any).overdueCount || 0}</span>
@@ -1004,7 +1050,7 @@ export const Dashboard: React.FC = () => {
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             {/* Left Column: Directory Listings */}
             <div className="lg:col-span-2 space-y-6">
-              <div className="bg-white dark:bg-brand-matte-card border border-gray-200 dark:border-brand-matte-border rounded-2xl shadow-sm overflow-hidden">
+              <div id="tour-workspace-directory" className="bg-white dark:bg-brand-matte-card border border-gray-200 dark:border-brand-matte-border rounded-2xl shadow-sm overflow-hidden">
                 <div className="p-6 border-b border-gray-100 dark:border-brand-matte-border bg-gray-50 dark:bg-black/10">
                   <h2 className="text-sm font-bold font-display text-brand-navy dark:text-white">Customer Workspace Directory</h2>
                   <p className="text-xs text-gray-500 dark:text-brand-matte-text mt-0.5">Select a customer profile from the roster to begin operations.</p>
@@ -1056,11 +1102,38 @@ export const Dashboard: React.FC = () => {
             {/* Right Column: Market Watch & Quick Calculator */}
             <div className="space-y-6">
               {/* Market Watch Widget */}
-              <div className="bg-white dark:bg-brand-matte-card border border-gray-200 dark:border-brand-matte-border p-6 rounded-2xl shadow-sm space-y-4">
+              <div id="tour-market-watch" className="bg-white dark:bg-brand-matte-card border border-gray-200 dark:border-brand-matte-border p-6 rounded-2xl shadow-sm space-y-4">
                 <div className="flex items-center justify-between border-b border-gray-100 dark:border-brand-matte-border pb-3">
-                  <h3 className="text-xs font-bold uppercase tracking-wider text-brand-navy dark:text-white flex items-center gap-1.5">
-                    <Activity size={14} className="text-brand-gold animate-pulse" /> Market Watch
-                  </h3>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-brand-navy dark:text-white flex items-center gap-1.5">
+                      <Activity size={14} className="text-brand-gold animate-pulse" /> Market Watch
+                    </h3>
+                    {/* Connectivity status badge */}
+                    {marketConnectivityStatus === 'live' && (
+                      <span className="inline-flex items-center gap-1 text-[9px] font-bold text-green-500 bg-green-500/10 px-1.5 py-0.5 rounded-full">
+                        <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse flex-shrink-0" />
+                        Live
+                      </span>
+                    )}
+                    {marketConnectivityStatus === 'cached' && (
+                      <span className="inline-flex items-center gap-1 text-[9px] font-bold text-amber-400 bg-amber-400/10 px-1.5 py-0.5 rounded-full" title={`Last synced: ${marketLastSync?.toLocaleString() || 'unknown'}`}>
+                        <span className="w-1.5 h-1.5 rounded-full bg-amber-400 flex-shrink-0" />
+                        Cached · {formatRelativeTime(marketLastSync)}
+                      </span>
+                    )}
+                    {marketConnectivityStatus === 'backend_offline' && (
+                      <span className="inline-flex items-center gap-1 text-[9px] font-bold text-red-500 bg-red-500/10 px-1.5 py-0.5 rounded-full">
+                        <span className="w-1.5 h-1.5 rounded-full bg-red-500 flex-shrink-0" />
+                        Offline
+                      </span>
+                    )}
+                    {marketConnectivityStatus === 'loading' && (
+                      <span className="inline-flex items-center gap-1 text-[9px] font-bold text-gray-400 bg-gray-400/10 px-1.5 py-0.5 rounded-full">
+                        <RefreshCw size={8} className="animate-spin" />
+                        Loading
+                      </span>
+                    )}
+                  </div>
                   <div className="flex items-center gap-2">
                     {/* Map toggle button */}
                     <button
@@ -1072,20 +1145,19 @@ export const Dashboard: React.FC = () => {
                           : 'text-gray-400 hover:text-brand-gold border-gray-200 dark:border-brand-matte-border hover:border-brand-gold'
                       }`}
                     >
-                      {/* Map pin dot icon */}
                       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                         <circle cx="12" cy="12" r="3" fill="currentColor" stroke="none"/>
                         <circle cx="12" cy="12" r="9"/>
                       </svg>
                     </button>
-                    <select aria-label="-I-"
+                    <select aria-label="Select market asset"
                       value={marketWatchAsset}
                       onChange={(e) => setMarketWatchAsset(e.target.value)}
                       className="px-2 py-1 bg-gray-50 dark:bg-black border border-gray-200 dark:border-brand-matte-border text-xs rounded-lg text-brand-navy dark:text-white focus:ring-1 focus:ring-brand-gold outline-none"
                     >
                       {marketRates.length > 0 ? (
-                        marketRates.map((mr) => (
-                          <option key={mr.id} value={mr.asset}>{mr.asset}</option>
+                        marketRates.map((mr: any) => (
+                          <option key={mr.asset} value={mr.asset}>{mr.asset}</option>
                         ))
                       ) : (
                         <>
@@ -1095,19 +1167,21 @@ export const Dashboard: React.FC = () => {
                         </>
                       )}
                     </select>
+                    {/* Manual refresh — triggers immediate re-poll via hook */}
                     <button
-                      onClick={() => handleTriggerSync(marketWatchAsset !== 'GOLD' && marketWatchAsset !== 'SILVER' ? marketWatchAsset : undefined)}
-                      className="p-1 text-gray-400 hover:text-brand-gold rounded transition-all"
-                      title="Sync Rates from API"
+                      onClick={() => refreshMarketRates()}
+                      disabled={isMarketRefreshing}
+                      className="p-1 text-gray-400 hover:text-brand-gold rounded transition-all disabled:opacity-40"
+                      title={isMarketRefreshing ? 'Refreshing...' : 'Refresh Market Rates'}
                     >
-                      <RefreshCw size={14} />
+                      <RefreshCw size={14} className={isMarketRefreshing ? 'animate-spin' : ''} />
                     </button>
                   </div>
                 </div>
 
                 {/* The Chart */}
                 {/* The Chart / Map toggle */}
-                <div className="h-48 w-full mt-4">
+                <div className={ `w-full mt-4 ${showMapView ? 'h-[380px]' : 'h-48'}`}>
                   {showMapView ? (
                     <IndiaPriceMap
                       rate={selectedMarketRate?.rate || 0}
@@ -1372,121 +1446,123 @@ export const Dashboard: React.FC = () => {
             {/* TAB CONTENT: LOANS */}
             {activeTab === 'loans' && (
               <div className="space-y-6">
-                <div className="bg-white dark:bg-brand-matte-card border border-gray-200 dark:border-brand-matte-border p-6 rounded-2xl shadow-sm">
-                  <div className="flex items-center justify-between mb-6">
-                    <h3 className="text-sm font-bold uppercase tracking-wider text-brand-navy dark:text-white">Credit & Loan Accounts</h3>
-                    {hasPermission('Loan Create') && (
-                      <button
-                        onClick={() => setShowAddLoan(true)}
-                        className="flex items-center gap-1 text-xs px-3 py-1.5 bg-brand-gold text-brand-navy font-bold rounded-lg hover:bg-brand-gold-light transition-all"
-                      >
-                        <Plus size={14} /> New Loan
-                      </button>
-                    )}
-                  </div>
+                <div id="tour-loans-section" className="bg-white dark:bg-brand-matte-card border border-gray-200 dark:border-brand-matte-border p-6 rounded-2xl shadow-sm">
+                  <div className="bg-white dark:bg-brand-matte-card border border-gray-200 dark:border-brand-matte-border p-6 rounded-2xl shadow-sm">
+                    <div className="flex items-center justify-between mb-6">
+                      <h3 className="text-sm font-bold uppercase tracking-wider text-brand-navy dark:text-white">Credit & Loan Accounts</h3>
+                      {hasPermission('Loan Create') && (
+                        <button
+                          onClick={() => setShowAddLoan(true)}
+                          className="flex items-center gap-1 text-xs px-3 py-1.5 bg-brand-gold text-brand-navy font-bold rounded-lg hover:bg-brand-gold-light transition-all"
+                        >
+                          <Plus size={14} /> New Loan
+                        </button>
+                      )}
+                    </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {workspace?.activeLoans.map((l: any) => (
-                      <div
-                        key={l.id}
-                        onClick={() => setSelectedLoanForDetails(l)}
-                        className={`p-4 border rounded-xl cursor-pointer transition-all ${selectedLoanForDetails?.id === l.id
-                          ? 'border-brand-gold bg-brand-gold/5 shadow-md'
-                          : 'border-gray-200 dark:border-brand-matte-border bg-white dark:bg-black/30 hover:border-brand-gold/50'
-                          }`}
-                      >
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="font-bold text-xs uppercase text-brand-navy dark:text-white">
-                            {l.loanType.name}
-                          </span>
-                          <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${l.status.code === 'APPROVED' ? 'bg-green-500/10 text-green-500' : 'bg-yellow-500/10 text-yellow-500'
-                            }`}>
-                            {l.status.name}
-                          </span>
-                        </div>
-                        <div className="text-xl font-bold font-display text-brand-navy dark:text-white mb-2">
-                          ₹{l.amount.toFixed(2)}
-                        </div>
-                        <div className="flex items-center justify-between text-[10px] text-gray-500 dark:text-brand-matte-text">
-                          <span>Rate: {l.interestRate}% ({l.interestType.name})</span>
-                          <span>Tenure: {l.tenureMonths} mo</span>
-                        </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {workspace?.activeLoans.map((l: any) => (
+                        <div
+                          key={l.id}
+                          onClick={() => setSelectedLoanForDetails(l)}
+                          className={`p-4 border rounded-xl cursor-pointer transition-all ${selectedLoanForDetails?.id === l.id
+                            ? 'border-brand-gold bg-brand-gold/5 shadow-md'
+                            : 'border-gray-200 dark:border-brand-matte-border bg-white dark:bg-black/30 hover:border-brand-gold/50'
+                            }`}
+                        >
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="font-bold text-xs uppercase text-brand-navy dark:text-white">
+                              {l.loanType.name}
+                            </span>
+                            <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${l.status.code === 'APPROVED' ? 'bg-green-500/10 text-green-500' : 'bg-yellow-500/10 text-yellow-500'
+                              }`}>
+                              {l.status.name}
+                            </span>
+                          </div>
+                          <div className="text-xl font-bold font-display text-brand-navy dark:text-white mb-2">
+                            ₹{l.amount.toFixed(2)}
+                          </div>
+                          <div className="flex items-center justify-between text-[10px] text-gray-500 dark:text-brand-matte-text">
+                            <span>Rate: {l.interestRate}% ({l.interestType.name})</span>
+                            <span>Tenure: {l.tenureMonths} mo</span>
+                          </div>
 
-                        {l.status.code === 'PENDING' && (
-                          <div className="flex gap-2 mt-4 pt-3 border-t border-gray-100 dark:border-brand-matte-border">
-                            {hasPermission('Loan Approve') && (
+                          {l.status.code === 'PENDING' && (
+                            <div id="tour-pending-approvals" className="flex gap-2 mt-4 pt-3 border-t border-gray-100 dark:border-brand-matte-border">
+                              {hasPermission('Loan Approve') && (
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); handleApproveLoan(l.id); }}
+                                  className="flex-1 py-1 bg-green-600 text-white text-[10px] font-bold rounded-lg hover:bg-green-700 transition-all"
+                                >
+                                  Approve
+                                </button>
+                              )}
+                              {hasPermission('Loan Reject') && (
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); handleRejectLoan(l.id); }}
+                                  className="flex-1 py-1 bg-red-600 text-white text-[10px] font-bold rounded-lg hover:bg-red-700 transition-all"
+                                >
+                                  Reject
+                                </button>
+                              )}
+                            </div>
+                          )}
+
+                          {/* Edit / Delete action row */}
+                          <div className="flex gap-2 mt-3 pt-3 border-t border-gray-100 dark:border-brand-matte-border">
+                            {(l.status.code === 'PENDING' || l.status.code === 'DRAFT') && hasPermission('Loan Update') && (
                               <button
-                                onClick={(e) => { e.stopPropagation(); handleApproveLoan(l.id); }}
-                                className="flex-1 py-1 bg-green-600 text-white text-[10px] font-bold rounded-lg hover:bg-green-700 transition-all"
+                                onClick={(e) => { e.stopPropagation(); setSelectedLoanForDetails(l); handleOpenEditLoan(l); }}
+                                className="flex-1 py-1 bg-blue-600 text-white text-[10px] font-bold rounded-lg hover:bg-blue-700 transition-all flex items-center justify-center gap-1"
                               >
-                                Approve
+                                <Edit3 size={10} /> Modify
                               </button>
                             )}
-                            {hasPermission('Loan Reject') && (
+                            {hasPermission('Loan Delete') && (
                               <button
-                                onClick={(e) => { e.stopPropagation(); handleRejectLoan(l.id); }}
-                                className="flex-1 py-1 bg-red-600 text-white text-[10px] font-bold rounded-lg hover:bg-red-700 transition-all"
+                                onClick={(e) => { e.stopPropagation(); handleSoftDeleteLoan(l.id); }}
+                                className="flex-1 py-1 bg-red-600/10 text-red-500 text-[10px] font-bold rounded-lg hover:bg-red-600/20 transition-all flex items-center justify-center gap-1"
                               >
-                                Reject
+                                <Trash2 size={10} /> Delete
                               </button>
                             )}
                           </div>
-                        )}
+                        </div>
+                      ))}
 
-                        {/* Edit / Delete action row */}
-                        <div className="flex gap-2 mt-3 pt-3 border-t border-gray-100 dark:border-brand-matte-border">
-                          {(l.status.code === 'PENDING' || l.status.code === 'DRAFT') && hasPermission('Loan Update') && (
-                            <button
-                              onClick={(e) => { e.stopPropagation(); setSelectedLoanForDetails(l); handleOpenEditLoan(l); }}
-                              className="flex-1 py-1 bg-blue-600 text-white text-[10px] font-bold rounded-lg hover:bg-blue-700 transition-all flex items-center justify-center gap-1"
-                            >
-                              <Edit3 size={10} /> Modify
-                            </button>
-                          )}
-                          {hasPermission('Loan Delete') && (
-                            <button
-                              onClick={(e) => { e.stopPropagation(); handleSoftDeleteLoan(l.id); }}
-                              className="flex-1 py-1 bg-red-600/10 text-red-500 text-[10px] font-bold rounded-lg hover:bg-red-600/20 transition-all flex items-center justify-center gap-1"
-                            >
-                              <Trash2 size={10} /> Delete
-                            </button>
-                          )}
+                      {workspace?.pastLoans.map((l: any) => (
+                        <div
+                          key={l.id}
+                          onClick={() => setSelectedLoanForDetails(l)}
+                          className={`p-4 border rounded-xl cursor-pointer opacity-75 transition-all ${selectedLoanForDetails?.id === l.id
+                            ? 'border-brand-gold bg-brand-gold/5 shadow-md'
+                            : 'border-gray-200 dark:border-brand-matte-border bg-white dark:bg-black/30'
+                            }`}
+                        >
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="font-bold text-xs uppercase text-brand-navy dark:text-white">
+                              {l.loanType.name}
+                            </span>
+                            <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-gray-500/10 text-gray-500">
+                              {l.status.name}
+                            </span>
+                          </div>
+                          <div className="text-xl font-bold font-display text-gray-400 dark:text-gray-500 mb-2">
+                            ₹{l.amount.toFixed(2)}
+                          </div>
+                          <div className="flex items-center justify-between text-[10px] text-gray-500">
+                            <span>Rate: {l.interestRate}% ({l.interestType.name})</span>
+                            <span>Tenure: {l.tenureMonths} mo</span>
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      ))}
 
-                    {workspace?.pastLoans.map((l: any) => (
-                      <div
-                        key={l.id}
-                        onClick={() => setSelectedLoanForDetails(l)}
-                        className={`p-4 border rounded-xl cursor-pointer opacity-75 transition-all ${selectedLoanForDetails?.id === l.id
-                          ? 'border-brand-gold bg-brand-gold/5 shadow-md'
-                          : 'border-gray-200 dark:border-brand-matte-border bg-white dark:bg-black/30'
-                          }`}
-                      >
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="font-bold text-xs uppercase text-brand-navy dark:text-white">
-                            {l.loanType.name}
-                          </span>
-                          <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-gray-500/10 text-gray-500">
-                            {l.status.name}
-                          </span>
+                      {workspace?.activeLoans.length === 0 && workspace?.pastLoans.length === 0 && (
+                        <div className="col-span-2 p-8 text-center border border-dashed border-gray-200 dark:border-brand-matte-border rounded-xl text-gray-400 dark:text-brand-matte-text">
+                          No active or historical loan accounts linked to customer.
                         </div>
-                        <div className="text-xl font-bold font-display text-gray-400 dark:text-gray-500 mb-2">
-                          ₹{l.amount.toFixed(2)}
-                        </div>
-                        <div className="flex items-center justify-between text-[10px] text-gray-500">
-                          <span>Rate: {l.interestRate}% ({l.interestType.name})</span>
-                          <span>Tenure: {l.tenureMonths} mo</span>
-                        </div>
-                      </div>
-                    ))}
-
-                    {workspace?.activeLoans.length === 0 && workspace?.pastLoans.length === 0 && (
-                      <div className="col-span-2 p-8 text-center border border-dashed border-gray-200 dark:border-brand-matte-border rounded-xl text-gray-400 dark:text-brand-matte-text">
-                        No active or historical loan accounts linked to customer.
-                      </div>
-                    )}
+                      )}
+                    </div>
                   </div>
                 </div>
 
@@ -1605,7 +1681,7 @@ export const Dashboard: React.FC = () => {
                     )}
 
                     {/* Amortization Schedule */}
-                    <div id="tour-payment-section" className="bg-white dark:bg-brand-matte-card border border-gray-200 dark:border-brand-matte-border rounded-2xl shadow-sm overflow-hidden">
+                    <div className="bg-white dark:bg-brand-matte-card border border-gray-200 dark:border-brand-matte-border rounded-2xl shadow-sm overflow-hidden">
                       <div className="border-b border-gray-100 dark:border-brand-matte-border bg-gray-50 dark:bg-black/20 p-4">
                         <h4 className="text-xs font-bold uppercase tracking-wider text-brand-navy dark:text-white">Amortization Repayments Schedule</h4>
                       </div>
@@ -1650,7 +1726,7 @@ export const Dashboard: React.FC = () => {
 
             {/* TAB CONTENT: PAYMENTS */}
             {activeTab === 'payments' && (
-              <div className="space-y-6">
+              <div id="tour-payments-tab" className="space-y-6">
                 <div className="bg-white dark:bg-brand-matte-card border border-gray-200 dark:border-brand-matte-border p-6 rounded-2xl shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                   <div>
                     <h3 className="text-sm font-bold uppercase tracking-wider text-brand-navy dark:text-white">Transaction Payment Ledger</h3>
@@ -1726,15 +1802,6 @@ export const Dashboard: React.FC = () => {
                                     >
                                       <Download size={14} />
                                     </button>
-                                    <a
-                                      aria-label={`Download receipt for payment ${pay.id}`}
-                                      href={`/api/payments/receipt/${pay.id}`}
-                                      download
-                                      className="inline-flex p-1 text-brand-gold hover:bg-brand-gold/10 rounded"
-                                      title="Download receipt"
-                                    >
-                                      <Download size={14} />
-                                    </a>
                                   </div>
                                 </td>
                               </tr>
@@ -1760,7 +1827,7 @@ export const Dashboard: React.FC = () => {
 
             {/* TAB CONTENT: TRANSACTIONS */}
             {activeTab === 'transactions' && (
-              <div className="space-y-4">
+              <div id="tour-transaction-tab" className="space-y-4">
                 {selectedLoanForDetails ? (
                   <TransactionList loanId={selectedLoanForDetails.id} />
                 ) : (
@@ -1773,7 +1840,7 @@ export const Dashboard: React.FC = () => {
 
             {/* TAB CONTENT: DOCUMENTS */}
             {activeTab === 'documents' && (
-              <div className="bg-white dark:bg-brand-matte-card border border-gray-200 dark:border-brand-matte-border p-6 rounded-2xl shadow-sm space-y-6">
+              <div id="tour-documents-tab" className="bg-white dark:bg-brand-matte-card border border-gray-200 dark:border-brand-matte-border p-6 rounded-2xl shadow-sm space-y-6">
                 <div className="flex items-center justify-between border-b border-gray-100 dark:border-brand-matte-border pb-3">
                   <div>
                     <h3 className="text-sm font-bold uppercase tracking-wider text-brand-navy dark:text-white">Documents Vault</h3>
@@ -1848,7 +1915,7 @@ export const Dashboard: React.FC = () => {
 
             {/* TAB CONTENT: NOTES */}
             {activeTab === 'notes' && (
-              <div className="bg-white dark:bg-brand-matte-card border border-gray-200 dark:border-brand-matte-border p-6 rounded-2xl shadow-sm space-y-6">
+              <div id="tour-notes-tab" className="bg-white dark:bg-brand-matte-card border border-gray-200 dark:border-brand-matte-border p-6 rounded-2xl shadow-sm space-y-6">
                 <div className="flex items-center justify-between border-b border-gray-100 dark:border-brand-matte-border pb-3">
                   <div>
                     <h3 className="text-sm font-bold uppercase tracking-wider text-brand-navy dark:text-white">Workspace Notes</h3>
@@ -1887,7 +1954,7 @@ export const Dashboard: React.FC = () => {
 
             {/* TAB CONTENT: TIMELINE */}
             {activeTab === 'timeline' && (
-              <div className="bg-white dark:bg-brand-matte-card border border-gray-200 dark:border-brand-matte-border p-6 rounded-2xl shadow-sm">
+              <div id="tour-timeline-tab" className="bg-white dark:bg-brand-matte-card border border-gray-200 dark:border-brand-matte-border p-6 rounded-2xl shadow-sm">
                 <h4 className="text-sm font-bold uppercase tracking-wider text-brand-navy dark:text-white mb-6 border-b border-gray-100 dark:border-brand-matte-border pb-3">
                   Account Timeline & Action Logs
                 </h4>
@@ -1912,7 +1979,7 @@ export const Dashboard: React.FC = () => {
 
             {/* TAB CONTENT: RISK PROFILE ANALYSIS */}
             {activeTab === 'risk' && (
-              <div className="bg-white dark:bg-brand-matte-card border border-gray-200 dark:border-brand-matte-border p-6 rounded-2xl shadow-sm space-y-6">
+              <div id="tour-risk-tab" className="bg-white dark:bg-brand-matte-card border border-gray-200 dark:border-brand-matte-border p-6 rounded-2xl shadow-sm space-y-6">
                 <div className="flex items-center justify-between border-b border-gray-100 dark:border-brand-matte-border pb-3">
                   <div>
                     <h3 className="text-sm font-bold uppercase tracking-wider text-brand-navy dark:text-white">Credit Risk Profile Assessment</h3>

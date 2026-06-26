@@ -1,9 +1,32 @@
 import React, { useState, useEffect } from 'react';
 import api from '../utils/api';
 import { Plus, Trash2, Edit3, Play, CheckCircle2, XCircle, RotateCcw } from 'lucide-react';
+import { useTour } from '../context/TourContext';
 
 export const Masters: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'settings' | 'loantypes' | 'rbac' | 'audits' | 'formulas' | 'restore'>('settings');
+
+  const { runTour, stepIndex, steps } = useTour();
+
+  // Sync activeTab with active tour step target selector
+  useEffect(() => {
+    if (runTour && steps[stepIndex]) {
+      const target = steps[stepIndex].target;
+      if (target === '#tour-settings-tab') {
+        setActiveTab('settings');
+      } else if (target === '#tour-loantypes-tab') {
+        setActiveTab('loantypes');
+      } else if (target === '#tour-rbac-tab') {
+        setActiveTab('rbac');
+      } else if (target === '#tour-audits-tab') {
+        setActiveTab('audits');
+      } else if (target === '#tour-formulas-tab') {
+        setActiveTab('formulas');
+      } else if (target === '#tour-restore-tab') {
+        setActiveTab('restore');
+      }
+    }
+  }, [runTour, stepIndex, steps]);
 
   // Master lookup options
   const [settings, setSettings] = useState<any[]>([]);
@@ -279,7 +302,7 @@ export const Masters: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      
+
       {/* Header */}
       <div>
         <h2 className="text-xl font-bold font-display text-brand-navy dark:text-white">Masters Data & Admin parameters</h2>
@@ -355,7 +378,7 @@ export const Masters: React.FC = () => {
 
         {/* Tab 1: System Settings */}
         {activeTab === 'settings' && (
-          <div className="space-y-4">
+          <div id="tour-settings-tab" className="space-y-4">
             <h3 className="text-sm font-bold uppercase tracking-wider text-brand-navy dark:text-white mb-4">System Settings Parameters</h3>
             <div className="divide-y divide-gray-100 dark:divide-brand-matte-border">
               {settings.map((item) => (
@@ -385,7 +408,7 @@ export const Masters: React.FC = () => {
 
         {/* Tab 2: Loan Types Customizer */}
         {activeTab === 'loantypes' && (
-          <div className="space-y-4">
+          <div id="tour-loantypes-tab" className="space-y-4">
             <div className="flex items-center justify-between border-b border-gray-100 dark:border-brand-matte-border pb-3">
               <h3 className="text-sm font-bold uppercase tracking-wider text-brand-navy dark:text-white">Custom Loan Categories</h3>
               {!showAddType && (
@@ -479,7 +502,7 @@ export const Masters: React.FC = () => {
 
         {/* Tab 3: RBAC Mapping */}
         {activeTab === 'rbac' && (
-          <div className="space-y-4">
+          <div id="tour-rbac-tab" className="space-y-4">
             <h3 className="text-sm font-bold uppercase tracking-wider text-brand-navy dark:text-white mb-4">RBAC Role Permissions Map</h3>
             
             <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
@@ -540,7 +563,7 @@ export const Masters: React.FC = () => {
 
         {/* Tab 4: Audit Trails */}
         {activeTab === 'audits' && (
-          <div className="space-y-4">
+          <div id="tour-audits-tab" className="space-y-4">
             <h3 className="text-sm font-bold uppercase tracking-wider text-brand-navy dark:text-white mb-4">Enterprise System Auditing Records</h3>
             
             <div className="overflow-x-auto max-h-96">
@@ -583,7 +606,7 @@ export const Masters: React.FC = () => {
 
         {/* Tab 5: Dynamic Formulas Engine */}
         {activeTab === 'formulas' && (
-          <div className="space-y-6">
+          <div id="tour-formulas-tab" className="space-y-6">
             {/* Header / Add button */}
             <div className="flex items-center justify-between border-b border-gray-100 dark:border-brand-matte-border pb-3">
               <div>
@@ -894,7 +917,7 @@ export const Masters: React.FC = () => {
 
         {/* Tab 6: Restore Deleted Records */}
         {activeTab === 'restore' && (
-          <div className="space-y-4">
+          <div id="tour-restore-tab" className="space-y-4">
             <div className="flex items-center justify-between border-b border-gray-100 dark:border-brand-matte-border pb-3">
               <div>
                 <h3 className="text-sm font-bold uppercase tracking-wider text-brand-navy dark:text-white">Restore / Permanently Delete Records</h3>
